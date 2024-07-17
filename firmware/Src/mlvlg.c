@@ -39,146 +39,146 @@ size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, uint8_t numSc
 }
 
 // Pack MLVLG header into buffer
-int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
+int mlg_packHeaderToBuffer(mlg_PackHeaderArgs* args) {
   size_t offset = 0;
 
   // Ensure buffer is large enough
-  size_t requiredSize = sizeof(mlg_Header) + numScalarFields * sizeof(mlg_LoggerField_Scalar) + numBitFields * sizeof(mlg_LoggerField_Bit);
-  if (requiredSize > bufferSize) {
+  size_t requiredSize = sizeof(mlg_Header) + args->numScalarFields * sizeof(mlg_LoggerField_Scalar) + args->numBitFields * sizeof(mlg_LoggerField_Bit);
+  if (requiredSize > args->bufferSize) {
     return -1; // Buffer overflow
   }
 
   // Calculate dataBeginIndex and infoDataStart
-  header->dataBeginIndex = infoDataStartOffset + sizeof(mlg_Header) + numScalarFields * sizeof(mlg_LoggerField_Scalar) + numBitFields * sizeof(mlg_LoggerField_Bit);
-  header->infoDataStart = infoDataStartOffset;
+  args->header->dataBeginIndex = args->infoDataStartOffset + sizeof(mlg_Header) + args->numScalarFields * sizeof(mlg_LoggerField_Scalar) + args->numBitFields * sizeof(mlg_LoggerField_Bit);
+  args->header->infoDataStart = args->infoDataStartOffset;
 
   // Copy fileFormat
-  memcpy(buffer + offset, header->fileFormat, sizeof(header->fileFormat));
-  offset += sizeof(header->fileFormat);
+  memcpy(args->buffer + offset, args->header->fileFormat, sizeof(args->header->fileFormat));
+  offset += sizeof(args->header->fileFormat);
 
   // Convert to big-endian and copy formatVersion
-  buffer[offset++] = (header->formatVersion >> 8) & 0xFF;
-  buffer[offset++] = header->formatVersion & 0xFF;
+  args->buffer[offset++] = (args->header->formatVersion >> 8) & 0xFF;
+  args->buffer[offset++] = args->header->formatVersion & 0xFF;
 
   // Convert to big-endian and copy timeStamp
-  buffer[offset++] = (header->timeStamp >> 24) & 0xFF;
-  buffer[offset++] = (header->timeStamp >> 16) & 0xFF;
-  buffer[offset++] = (header->timeStamp >> 8) & 0xFF;
-  buffer[offset++] = header->timeStamp & 0xFF;
+  args->buffer[offset++] = (args->header->timeStamp >> 24) & 0xFF;
+  args->buffer[offset++] = (args->header->timeStamp >> 16) & 0xFF;
+  args->buffer[offset++] = (args->header->timeStamp >> 8) & 0xFF;
+  args->buffer[offset++] = args->header->timeStamp & 0xFF;
 
   // Convert to big-endian and copy infoDataStart
-  buffer[offset++] = (header->infoDataStart >> 24) & 0xFF;
-  buffer[offset++] = (header->infoDataStart >> 16) & 0xFF;
-  buffer[offset++] = (header->infoDataStart >> 8) & 0xFF;
-  buffer[offset++] = header->infoDataStart & 0xFF;
+  args->buffer[offset++] = (args->header->infoDataStart >> 24) & 0xFF;
+  args->buffer[offset++] = (args->header->infoDataStart >> 16) & 0xFF;
+  args->buffer[offset++] = (args->header->infoDataStart >> 8) & 0xFF;
+  args->buffer[offset++] = args->header->infoDataStart & 0xFF;
 
   // Convert to big-endian and copy dataBeginIndex
-  buffer[offset++] = (header->dataBeginIndex >> 24) & 0xFF;
-  buffer[offset++] = (header->dataBeginIndex >> 16) & 0xFF;
-  buffer[offset++] = (header->dataBeginIndex >> 8) & 0xFF;
-  buffer[offset++] = header->dataBeginIndex & 0xFF;
+  args->buffer[offset++] = (args->header->dataBeginIndex >> 24) & 0xFF;
+  args->buffer[offset++] = (args->header->dataBeginIndex >> 16) & 0xFF;
+  args->buffer[offset++] = (args->header->dataBeginIndex >> 8) & 0xFF;
+  args->buffer[offset++] = args->header->dataBeginIndex & 0xFF;
 
   // Convert to big-endian and copy recordLength
-  buffer[offset++] = (header->recordLength >> 8) & 0xFF;
-  buffer[offset++] = header->recordLength & 0xFF;
+  args->buffer[offset++] = (args->header->recordLength >> 8) & 0xFF;
+  args->buffer[offset++] = args->header->recordLength & 0xFF;
 
   // Convert to big-endian and copy numLoggerFields
-  uint16_t numLoggerFields = numScalarFields + numBitFields;
-  buffer[offset++] = (numLoggerFields >> 8) & 0xFF;
-  buffer[offset++] = numLoggerFields & 0xFF;
+  uint16_t numLoggerFields = args->numScalarFields + args->numBitFields;
+  args->buffer[offset++] = (numLoggerFields >> 8) & 0xFF;
+  args->buffer[offset++] = numLoggerFields & 0xFF;
 
   // Copy Scalar Logger Fields
-  for (int i = 0; i < numScalarFields; ++i) {
-    memcpy(buffer + offset, &scalarFields[i].type, sizeof(scalarFields[i].type));
-    offset += sizeof(scalarFields[i].type);
+  for (int i = 0; i < args->numScalarFields; ++i) {
+    memcpy(args->buffer + offset, &args->scalarFields[i].type, sizeof(args->scalarFields[i].type));
+    offset += sizeof(args->scalarFields[i].type);
 
-    memcpy(buffer + offset, scalarFields[i].name, sizeof(scalarFields[i].name));
-    offset += sizeof(scalarFields[i].name);
+    memcpy(args->buffer + offset, args->scalarFields[i].name, sizeof(args->scalarFields[i].name));
+    offset += sizeof(args->scalarFields[i].name);
 
-    memcpy(buffer + offset, scalarFields[i].units, sizeof(scalarFields[i].units));
-    offset += sizeof(scalarFields[i].units);
+    memcpy(args->buffer + offset, args->scalarFields[i].units, sizeof(args->scalarFields[i].units));
+    offset += sizeof(args->scalarFields[i].units);
 
-    memcpy(buffer + offset, &scalarFields[i].displayStyle, sizeof(scalarFields[i].displayStyle));
-    offset += sizeof(scalarFields[i].displayStyle);
+    memcpy(args->buffer + offset, &args->scalarFields[i].displayStyle, sizeof(args->scalarFields[i].displayStyle));
+    offset += sizeof(args->scalarFields[i].displayStyle);
 
-    memcpy(buffer + offset, &scalarFields[i].scale, sizeof(scalarFields[i].scale));
-    offset += sizeof(scalarFields[i].scale);
+    memcpy(args->buffer + offset, &args->scalarFields[i].scale, sizeof(args->scalarFields[i].scale));
+    offset += sizeof(args->scalarFields[i].scale);
 
-    memcpy(buffer + offset, &scalarFields[i].transform, sizeof(scalarFields[i].transform));
-    offset += sizeof(scalarFields[i].transform);
+    memcpy(args->buffer + offset, &args->scalarFields[i].transform, sizeof(args->scalarFields[i].transform));
+    offset += sizeof(args->scalarFields[i].transform);
 
-    memcpy(buffer + offset, &scalarFields[i].digits, sizeof(scalarFields[i].digits));
-    offset += sizeof(scalarFields[i].digits);
+    memcpy(args->buffer + offset, &args->scalarFields[i].digits, sizeof(args->scalarFields[i].digits));
+    offset += sizeof(args->scalarFields[i].digits);
 
-    memcpy(buffer + offset, scalarFields[i].category, sizeof(scalarFields[i].category));
-    offset += sizeof(scalarFields[i].category);
+    memcpy(args->buffer + offset, args->scalarFields[i].category, sizeof(args->scalarFields[i].category));
+    offset += sizeof(args->scalarFields[i].category);
   }
 
   // Copy Bit Logger Fields
-  for (int i = 0; i < numBitFields; ++i) {
-    memcpy(buffer + offset, &bitFields[i].type, sizeof(bitFields[i].type));
-    offset += sizeof(bitFields[i].type);
+  for (int i = 0; i < args->numBitFields; ++i) {
+    memcpy(args->buffer + offset, &args->bitFields[i].type, sizeof(args->bitFields[i].type));
+    offset += sizeof(args->bitFields[i].type);
 
-    memcpy(buffer + offset, bitFields[i].name, sizeof(bitFields[i].name));
-    offset += sizeof(bitFields[i].name);
+    memcpy(args->buffer + offset, args->bitFields[i].name, sizeof(args->bitFields[i].name));
+    offset += sizeof(args->bitFields[i].name);
 
-    memcpy(buffer + offset, bitFields[i].units, sizeof(bitFields[i].units));
-    offset += sizeof(bitFields[i].units);
+    memcpy(args->buffer + offset, args->bitFields[i].units, sizeof(args->bitFields[i].units));
+    offset += sizeof(args->bitFields[i].units);
 
-    memcpy(buffer + offset, &bitFields[i].displayStyle, sizeof(bitFields[i].displayStyle));
-    offset += sizeof(bitFields[i].displayStyle);
+    memcpy(args->buffer + offset, &args->bitFields[i].displayStyle, sizeof(args->bitFields[i].displayStyle));
+    offset += sizeof(args->bitFields[i].displayStyle);
 
-    memcpy(buffer + offset, &bitFields[i].bitFieldStyle, sizeof(bitFields[i].bitFieldStyle));
-    offset += sizeof(bitFields[i].bitFieldStyle);
+    memcpy(args->buffer + offset, &args->bitFields[i].bitFieldStyle, sizeof(args->bitFields[i].bitFieldStyle));
+    offset += sizeof(args->bitFields[i].bitFieldStyle);
 
-    memcpy(buffer + offset, &bitFields[i].bitFieldNamesIndex, sizeof(bitFields[i].bitFieldNamesIndex));
-    offset += sizeof(bitFields[i].bitFieldNamesIndex);
+    memcpy(args->buffer + offset, &args->bitFields[i].bitFieldNamesIndex, sizeof(args->bitFields[i].bitFieldNamesIndex));
+    offset += sizeof(args->bitFields[i].bitFieldNamesIndex);
 
-    memcpy(buffer + offset, &bitFields[i].bits, sizeof(bitFields[i].bits));
-    offset += sizeof(bitFields[i].bits);
+    memcpy(args->buffer + offset, &args->bitFields[i].bits, sizeof(args->bitFields[i].bits));
+    offset += sizeof(args->bitFields[i].bits);
 
-    memcpy(buffer + offset, bitFields[i].unused, sizeof(bitFields[i].unused));
-    offset += sizeof(bitFields[i].unused);
+    memcpy(args->buffer + offset, args->bitFields[i].unused, sizeof(args->bitFields[i].unused));
+    offset += sizeof(args->bitFields[i].unused);
 
-    memcpy(buffer + offset, bitFields[i].category, sizeof(bitFields[i].category));
-    offset += sizeof(bitFields[i].category);
+    memcpy(args->buffer + offset, args->bitFields[i].category, sizeof(args->bitFields[i].category));
+    offset += sizeof(args->bitFields[i].category);
   }
 
   return 0; // Success
 }
 
 // Pack DataBlock into buffer
-int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields) {
+int mlg_packDataBlock(mlg_PackDataBlockArgs* args) {
   size_t offset = 0;
 
-  size_t dataSize = mlg_calculateDataSize(scalarFields, numScalarFields, bitFields, numBitFields);
+  size_t dataSize = mlg_calculateDataSize(args->scalarFields, args->numScalarFields, args->bitFields, args->numBitFields);
 
   // Ensure buffer is large enough
   size_t requiredSize = 1 + 1 + 2 + dataSize + 1; // Type + Counter + Timestamp + Data + CRC
-  if (requiredSize > bufferSize) {
+  if (requiredSize > args->bufferSize) {
     return -1; // Buffer overflow
   }
 
   // Copy type
-  buffer[offset++] = dataBlock->type;
+  args->buffer[offset++] = args->dataBlock->type;
 
   // Copy counter
-  buffer[offset++] = dataBlock->counter;
+  args->buffer[offset++] = args->dataBlock->counter;
 
   // Copy timestamp
-  buffer[offset++] = (dataBlock->timestamp >> 8) & 0xFF;
-  buffer[offset++] = dataBlock->timestamp & 0xFF;
+  args->buffer[offset++] = (args->dataBlock->timestamp >> 8) & 0xFF;
+  args->buffer[offset++] = args->dataBlock->timestamp & 0xFF;
 
   // Copy data
-  memcpy(buffer + offset, dataBlock->data, dataSize);
+  memcpy(args->buffer + offset, args->dataBlock->data, dataSize);
   offset += dataSize;
 
   // Calculate and copy CRC
   uint8_t crc = 0;
   for (size_t i = 0; i < dataSize; i++) {
-    crc += dataBlock->data[i];
+    crc += args->dataBlock->data[i];
   }
-  buffer[offset++] = crc;
+  args->buffer[offset++] = crc;
 
   return 0; // Success
 }
@@ -257,7 +257,18 @@ void mlg_test() {
   memset(buffer, 0, bufferSize);
 
   // Pack header into buffer
-  int result = mlg_packHeaderToBuffer(&header, scalarFields, 4, bitFields, 3, buffer, bufferSize, sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 3 * sizeof(mlg_LoggerField_Bit) + strlen(bitFieldNames) + 1);
+  mlg_PackHeaderArgs headerArgs = {
+      .header = &header,
+      .scalarFields = scalarFields,
+      .numScalarFields = 4,
+      .bitFields = bitFields,
+      .numBitFields = 3,
+      .buffer = buffer,
+      .bufferSize = bufferSize,
+      .infoDataStartOffset = sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 3 * sizeof(mlg_LoggerField_Bit) + strlen(bitFieldNames) + 1
+  };
+
+  int result = mlg_packHeaderToBuffer(&headerArgs);
 
   if (result == -1) {
     printf("Header buffer overflow\n");
@@ -298,7 +309,17 @@ void mlg_test() {
   mlg_DataBlock dataBlock = {0, 1, 0x1234, data, 0};
 
   uint8_t dataBlockBuffer[256];
-  result = mlg_packDataBlock(dataBlockBuffer, sizeof(dataBlockBuffer), &dataBlock, scalarFields, 4, bitFields, 3);
+  mlg_PackDataBlockArgs dataBlockArgs = {
+      .dataBlock = &dataBlock,
+      .scalarFields = scalarFields,
+      .numScalarFields = 4,
+      .bitFields = bitFields,
+      .numBitFields = 3,
+      .buffer = dataBlockBuffer,
+      .bufferSize = sizeof(dataBlockBuffer)
+  };
+
+  result = mlg_packDataBlock(&dataBlockArgs);
 
   if (result == -1) {
     printf("Data block buffer overflow\n");

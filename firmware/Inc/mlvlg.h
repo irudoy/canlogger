@@ -88,11 +88,33 @@ typedef struct {
   char message[50];      // Null-terminated message
 } __attribute__((packed)) mlg_Marker;
 
+// Структура для упаковки данных
+typedef struct {
+  mlg_Header* header;
+  mlg_LoggerField_Scalar* scalarFields;
+  uint8_t numScalarFields;
+  mlg_LoggerField_Bit* bitFields;
+  uint8_t numBitFields;
+  uint8_t* buffer;
+  size_t bufferSize;
+  uint32_t infoDataStartOffset;
+} mlg_PackHeaderArgs;
+
+typedef struct {
+  mlg_DataBlock* dataBlock;
+  mlg_LoggerField_Scalar* scalarFields;
+  uint8_t numScalarFields;
+  mlg_LoggerField_Bit* bitFields;
+  uint8_t numBitFields;
+  uint8_t* buffer;
+  size_t bufferSize;
+} mlg_PackDataBlockArgs;
+
 // Функции
 size_t mlg_getFieldSize(mlg_FieldType type);
 size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields);
-int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset);
-int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields);
+int mlg_packHeaderToBuffer(mlg_PackHeaderArgs* args);
+int mlg_packDataBlock(mlg_PackDataBlockArgs* args);
 int mlg_packMarker(uint8_t* buffer, size_t bufferSize, mlg_Marker* marker);
 void mlg_printBuffer(uint8_t* buffer, size_t size);
 void mlg_test();
