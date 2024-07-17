@@ -27,7 +27,7 @@ size_t mlg_getFieldSize(mlg_FieldType type) {
 }
 
 // Calculate total data size for scalar and bit fields
-size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
+size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields) {
   size_t size = 0;
   for (int i = 0; i < numScalarFields; ++i) {
     size += mlg_getFieldSize(scalarFields[i].type);
@@ -39,7 +39,7 @@ size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, mlg_LoggerFie
 }
 
 // Pack MLVLG header into buffer
-int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
+int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
   size_t offset = 0;
 
   // Ensure buffer is large enough
@@ -148,10 +148,10 @@ int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFie
 }
 
 // Pack DataBlock into buffer
-int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
+int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields) {
   size_t offset = 0;
 
-  size_t dataSize = mlg_calculateDataSize(scalarFields, bitFields, numScalarFields, numBitFields);
+  size_t dataSize = mlg_calculateDataSize(scalarFields, numScalarFields, bitFields, numBitFields);
 
   // Ensure buffer is large enough
   size_t requiredSize = 1 + 1 + 2 + dataSize + 1; // Type + Counter + Timestamp + Data + CRC
@@ -240,11 +240,10 @@ void mlg_test() {
   };
 
   // Initialize example bit fields
-  mlg_LoggerField_Bit bitFields[4] = {
+  mlg_LoggerField_Bit bitFields[3] = {
       {MLG_U08_BITFIELD, "U08BitField", "U08", MLG_ON_OFF, MLG_YES_NO, 0x12345678, 8, {0, 0, 0}, "Category"},
       {MLG_U16_BITFIELD, "U16BitField", "U16", MLG_YES_NO, MLG_HIGH_LOW, 0x23456789, 16, {0, 0, 0}, "Category"},
-      {MLG_U32_BITFIELD, "U32BitField", "U32", MLG_HIGH_LOW, MLG_ACTIVE_INACTIVE, 0x34567890, 32, {0, 0, 0}, "Category"},
-      {MLG_F32, "F32Field", "F32", MLG_FLOAT, 1.0f, 0.0f, 2, "Category"}
+      {MLG_U32_BITFIELD, "U32BitField", "U32", MLG_HIGH_LOW, MLG_ACTIVE_INACTIVE, 0x34567890, 32, {0, 0, 0}, "Category"}
   };
 
   // Example Bit Field Names
@@ -258,7 +257,7 @@ void mlg_test() {
   memset(buffer, 0, bufferSize);
 
   // Pack header into buffer
-  int result = mlg_packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 4 * sizeof(mlg_LoggerField_Bit) + strlen(bitFieldNames) + 1);
+  int result = mlg_packHeaderToBuffer(&header, scalarFields, 4, bitFields, 3, buffer, bufferSize, sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 3 * sizeof(mlg_LoggerField_Bit) + strlen(bitFieldNames) + 1);
 
   if (result == -1) {
     printf("Header buffer overflow\n");
@@ -271,7 +270,7 @@ void mlg_test() {
     printf("Bit Field Names buffer overflow\n");
     return;
   }
-  memcpy(buffer + sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 4 * sizeof(mlg_LoggerField_Bit), bitFieldNames, bitFieldNamesLength);
+  memcpy(buffer + sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 3 * sizeof(mlg_LoggerField_Bit), bitFieldNames, bitFieldNamesLength);
 
   // Copy Info Data to buffer
   size_t infoDataLength = strlen(infoData) + 1; // Include null terminator
@@ -285,7 +284,7 @@ void mlg_test() {
   mlg_printBuffer(buffer, header.dataBeginIndex + infoDataLength);
 
   // Example data block
-  size_t dataSize = mlg_calculateDataSize(scalarFields, bitFields, 4, 4);
+  size_t dataSize = mlg_calculateDataSize(scalarFields, 4, bitFields, 3);
   uint8_t* data = (uint8_t*)malloc(dataSize);
   if (data == NULL) {
     printf("Failed to allocate memory for data\n");
@@ -299,7 +298,7 @@ void mlg_test() {
   mlg_DataBlock dataBlock = {0, 1, 0x1234, data, 0};
 
   uint8_t dataBlockBuffer[256];
-  result = mlg_packDataBlock(dataBlockBuffer, sizeof(dataBlockBuffer), &dataBlock, scalarFields, bitFields, 4, 4);
+  result = mlg_packDataBlock(dataBlockBuffer, sizeof(dataBlockBuffer), &dataBlock, scalarFields, 4, bitFields, 3);
 
   if (result == -1) {
     printf("Data block buffer overflow\n");

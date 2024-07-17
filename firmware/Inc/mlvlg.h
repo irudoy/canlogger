@@ -90,9 +90,9 @@ typedef struct {
 
 // Функции
 size_t mlg_getFieldSize(mlg_FieldType type);
-size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields);
-int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset);
-int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields);
+size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields);
+int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset);
+int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, uint8_t numScalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numBitFields);
 int mlg_packMarker(uint8_t* buffer, size_t bufferSize, mlg_Marker* marker);
 void mlg_printBuffer(uint8_t* buffer, size_t size);
 void mlg_test();

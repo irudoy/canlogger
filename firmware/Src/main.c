@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "generated_rtc_time.h"
 #include "log_writer.h"
+#include "mlvlg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -98,6 +99,7 @@ int main(void)
   MX_FATFS_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
+  mlg_test();
   lw_init();
   /* USER CODE END 2 */
 
