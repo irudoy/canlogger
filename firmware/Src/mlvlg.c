@@ -1,102 +1,25 @@
+#include "mlvlg.h"
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
-#include <stdlib.h>
-
-#define MAX_BUFFER_SIZE (1024 * 1024) // 1 MB
-
-typedef struct {
-  char fileFormat[6];      // "MLVLG" padded by 0
-  uint16_t formatVersion;  // Current version, 0x0002
-  uint32_t timeStamp;      // Unix 32-bit timestamp
-  uint32_t infoDataStart;  // Offset after LoggerField[] definitions
-  uint32_t dataBeginIndex; // Address of the 1st byte containing Type-Data pairs
-  uint16_t recordLength;   // Length of a single data record
-  uint16_t numLoggerFields;// Number of expected Logger Fields
-} __attribute__((packed)) MLVLG_Header;
-
-typedef enum {
-  U08 = 0,
-  S08 = 1,
-  U16 = 2,
-  S16 = 3,
-  U32 = 4,
-  S32 = 5,
-  S64 = 6,
-  F32 = 7,
-  U08_BITFIELD = 10,
-  U16_BITFIELD = 11,
-  U32_BITFIELD = 12
-} FieldType;
-
-typedef enum {
-  FLOAT = 0,
-  HEX = 1,
-  BITS = 2,
-  DATE = 3,
-  ON_OFF = 4,
-  YES_NO = 5,
-  HIGH_LOW = 6,
-  ACTIVE_INACTIVE = 7,
-  TRUE_FALSE = 8
-} DisplayStyle;
-
-typedef struct {
-  FieldType type;          // Field type
-  char name[34];           // ASCII, null terminated
-  char units[10];          // ASCII, null terminated
-  DisplayStyle displayStyle; // Display style
-  float scale;             // IEEE 754 float
-  float transform;         // IEEE 754 float
-  uint8_t digits;          // S08, number of decimal places
-  char category[34];       // Optional category, ASCII, null terminated
-} __attribute__((packed)) LoggerField_Scalar;
-
-typedef struct {
-  FieldType type;              // 10=U08_BITFIELD, 11=U16_BITFIELD, 12=U32_BITFIELD
-  char name[34];               // ASCII, null terminated
-  char units[10];              // ASCII, null terminated
-  DisplayStyle displayStyle;   // Display style for the field
-  DisplayStyle bitFieldStyle;  // Display style for the bit fields
-  uint32_t bitFieldNamesIndex; // Index of Bit Field Names
-  uint8_t bits;                // Number of valid bits
-  uint8_t unused[3];           // Filler to maintain size
-  char category[34];           // Optional category, ASCII, null terminated
-} __attribute__((packed)) LoggerField_Bit;
-
-typedef struct {
-  uint8_t type;          // Type identifier (Logger Field Data)
-  uint8_t counter;       // Rolling counter
-  uint16_t timestamp;    // 2-byte timestamp
-  uint8_t* data;         // Pointer to data
-  uint8_t crc;           // CRC byte
-} __attribute__((packed)) DataBlock;
-
-typedef struct {
-  uint8_t type;          // 1 for marker
-  uint8_t counter;       // Rolling counter
-  uint16_t timestamp;    // 2-byte timestamp
-  char message[50];      // Null-terminated message
-} __attribute__((packed)) Marker;
 
 // Calculate size of field based on its type
-size_t getFieldSize(FieldType type) {
+size_t mlg_getFieldSize(mlg_FieldType type) {
   switch (type) {
-    case U08:
-    case S08:
-    case U08_BITFIELD:
+    case MLG_U08:
+    case MLG_S08:
+    case MLG_U08_BITFIELD:
       return 1;
-    case U16:
-    case S16:
-    case U16_BITFIELD:
+    case MLG_U16:
+    case MLG_S16:
+    case MLG_U16_BITFIELD:
       return 2;
-    case U32:
-    case S32:
-    case U32_BITFIELD:
+    case MLG_U32:
+    case MLG_S32:
+    case MLG_U32_BITFIELD:
       return 4;
-    case S64:
+    case MLG_S64:
       return 8;
-    case F32:
+    case MLG_F32:
       return 4;
     default:
       return 0;
@@ -104,29 +27,29 @@ size_t getFieldSize(FieldType type) {
 }
 
 // Calculate total data size for scalar and bit fields
-size_t calculateDataSize(LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
+size_t mlg_calculateDataSize(mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
   size_t size = 0;
   for (int i = 0; i < numScalarFields; ++i) {
-    size += getFieldSize(scalarFields[i].type);
+    size += mlg_getFieldSize(scalarFields[i].type);
   }
   for (int i = 0; i < numBitFields; ++i) {
-    size += getFieldSize(bitFields[i].type);
+    size += mlg_getFieldSize(bitFields[i].type);
   }
   return size;
 }
 
 // Pack MLVLG header into buffer
-int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
+int mlg_packHeaderToBuffer(mlg_Header* header, mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
   size_t offset = 0;
 
   // Ensure buffer is large enough
-  size_t requiredSize = sizeof(MLVLG_Header) + numScalarFields * sizeof(LoggerField_Scalar) + numBitFields * sizeof(LoggerField_Bit);
+  size_t requiredSize = sizeof(mlg_Header) + numScalarFields * sizeof(mlg_LoggerField_Scalar) + numBitFields * sizeof(mlg_LoggerField_Bit);
   if (requiredSize > bufferSize) {
     return -1; // Buffer overflow
   }
 
   // Calculate dataBeginIndex and infoDataStart
-  header->dataBeginIndex = infoDataStartOffset + sizeof(MLVLG_Header) + numScalarFields * sizeof(LoggerField_Scalar) + numBitFields * sizeof(LoggerField_Bit);
+  header->dataBeginIndex = infoDataStartOffset + sizeof(mlg_Header) + numScalarFields * sizeof(mlg_LoggerField_Scalar) + numBitFields * sizeof(mlg_LoggerField_Bit);
   header->infoDataStart = infoDataStartOffset;
 
   // Copy fileFormat
@@ -225,10 +148,10 @@ int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, L
 }
 
 // Pack DataBlock into buffer
-int packDataBlock(uint8_t* buffer, size_t bufferSize, DataBlock* dataBlock, LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
+int mlg_packDataBlock(uint8_t* buffer, size_t bufferSize, mlg_DataBlock* dataBlock, mlg_LoggerField_Scalar* scalarFields, mlg_LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
   size_t offset = 0;
 
-  size_t dataSize = calculateDataSize(scalarFields, bitFields, numScalarFields, numBitFields);
+  size_t dataSize = mlg_calculateDataSize(scalarFields, bitFields, numScalarFields, numBitFields);
 
   // Ensure buffer is large enough
   size_t requiredSize = 1 + 1 + 2 + dataSize + 1; // Type + Counter + Timestamp + Data + CRC
@@ -261,7 +184,7 @@ int packDataBlock(uint8_t* buffer, size_t bufferSize, DataBlock* dataBlock, Logg
 }
 
 // Pack Marker into buffer
-int packMarker(uint8_t* buffer, size_t bufferSize, Marker* marker) {
+int mlg_packMarker(uint8_t* buffer, size_t bufferSize, mlg_Marker* marker) {
   size_t offset = 0;
 
   // Ensure buffer is large enough
@@ -288,7 +211,7 @@ int packMarker(uint8_t* buffer, size_t bufferSize, Marker* marker) {
 }
 
 // Print buffer as hex for verification
-void printBuffer(uint8_t* buffer, size_t size) {
+void mlg_printBuffer(uint8_t* buffer, size_t size) {
   for (size_t i = 0; i < size; i++) {
     printf("%02X ", buffer[i]);
   }
@@ -296,9 +219,9 @@ void printBuffer(uint8_t* buffer, size_t size) {
 }
 
 // Test function to verify implementation
-void test() {
+void mlg_test() {
   // Initialize example header
-  MLVLG_Header header = {
+  mlg_Header header = {
       .fileFormat = "MLVLG",
       .formatVersion = 0x0002,
       .timeStamp = 0x5F4D3C2B,  // Example timestamp
@@ -309,19 +232,19 @@ void test() {
   };
 
   // Initialize example scalar fields
-  LoggerField_Scalar scalarFields[4] = {
-      {U08, "U08Field", "U08", FLOAT, 1.0f, 0.0f, 2, "Category"},
-      {S08, "S08Field", "S08", HEX, 1.0f, 0.0f, 2, "Category"},
-      {U16, "U16Field", "U16", BITS, 1.0f, 0.0f, 2, "Category"},
-      {S16, "S16Field", "S16", DATE, 1.0f, 0.0f, 2, "Category"},
+  mlg_LoggerField_Scalar scalarFields[4] = {
+      {MLG_U08, "U08Field", "U08", MLG_FLOAT, 1.0f, 0.0f, 2, "Category"},
+      {MLG_S08, "S08Field", "S08", MLG_HEX, 1.0f, 0.0f, 2, "Category"},
+      {MLG_U16, "U16Field", "U16", MLG_BITS, 1.0f, 0.0f, 2, "Category"},
+      {MLG_S16, "S16Field", "S16", MLG_DATE, 1.0f, 0.0f, 2, "Category"},
   };
 
   // Initialize example bit fields
-  LoggerField_Bit bitFields[4] = {
-      {U08_BITFIELD, "U08BitField", "U08", ON_OFF, YES_NO, 0x12345678, 8, {0, 0, 0}, "Category"},
-      {U16_BITFIELD, "U16BitField", "U16", YES_NO, HIGH_LOW, 0x23456789, 16, {0, 0, 0}, "Category"},
-      {U32_BITFIELD, "U32BitField", "U32", HIGH_LOW, ACTIVE_INACTIVE, 0x34567890, 32, {0, 0, 0}, "Category"},
-      {F32, "F32Field", "F32", FLOAT, 1.0f, 0.0f, 2, "Category"}
+  mlg_LoggerField_Bit bitFields[4] = {
+      {MLG_U08_BITFIELD, "U08BitField", "U08", MLG_ON_OFF, MLG_YES_NO, 0x12345678, 8, {0, 0, 0}, "Category"},
+      {MLG_U16_BITFIELD, "U16BitField", "U16", MLG_YES_NO, MLG_HIGH_LOW, 0x23456789, 16, {0, 0, 0}, "Category"},
+      {MLG_U32_BITFIELD, "U32BitField", "U32", MLG_HIGH_LOW, MLG_ACTIVE_INACTIVE, 0x34567890, 32, {0, 0, 0}, "Category"},
+      {MLG_F32, "F32Field", "F32", MLG_FLOAT, 1.0f, 0.0f, 2, "Category"}
   };
 
   // Example Bit Field Names
@@ -335,7 +258,7 @@ void test() {
   memset(buffer, 0, bufferSize);
 
   // Pack header into buffer
-  int result = packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit) + strlen(bitFieldNames) + 1);
+  int result = mlg_packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 4 * sizeof(mlg_LoggerField_Bit) + strlen(bitFieldNames) + 1);
 
   if (result == -1) {
     printf("Header buffer overflow\n");
@@ -348,7 +271,7 @@ void test() {
     printf("Bit Field Names buffer overflow\n");
     return;
   }
-  memcpy(buffer + sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit), bitFieldNames, bitFieldNamesLength);
+  memcpy(buffer + sizeof(mlg_Header) + 4 * sizeof(mlg_LoggerField_Scalar) + 4 * sizeof(mlg_LoggerField_Bit), bitFieldNames, bitFieldNamesLength);
 
   // Copy Info Data to buffer
   size_t infoDataLength = strlen(infoData) + 1; // Include null terminator
@@ -359,10 +282,10 @@ void test() {
   memcpy(buffer + header.dataBeginIndex, infoData, infoDataLength);
 
   // Print header buffer for verification
-  printBuffer(buffer, header.dataBeginIndex + infoDataLength);
+  mlg_printBuffer(buffer, header.dataBeginIndex + infoDataLength);
 
   // Example data block
-  size_t dataSize = calculateDataSize(scalarFields, bitFields, 4, 4);
+  size_t dataSize = mlg_calculateDataSize(scalarFields, bitFields, 4, 4);
   uint8_t* data = (uint8_t*)malloc(dataSize);
   if (data == NULL) {
     printf("Failed to allocate memory for data\n");
@@ -373,10 +296,10 @@ void test() {
     data[i] = i + 1; // Example data
   }
 
-  DataBlock dataBlock = {0, 1, 0x1234, data, 0};
+  mlg_DataBlock dataBlock = {0, 1, 0x1234, data, 0};
 
   uint8_t dataBlockBuffer[256];
-  result = packDataBlock(dataBlockBuffer, sizeof(dataBlockBuffer), &dataBlock, scalarFields, bitFields, 4, 4);
+  result = mlg_packDataBlock(dataBlockBuffer, sizeof(dataBlockBuffer), &dataBlock, scalarFields, bitFields, 4, 4);
 
   if (result == -1) {
     printf("Data block buffer overflow\n");
@@ -385,13 +308,13 @@ void test() {
   }
 
   // Print data block buffer for verification
-  printBuffer(dataBlockBuffer, 1 + 1 + 2 + dataSize + 1); // Type + Counter + Timestamp + Data + CRC
+  mlg_printBuffer(dataBlockBuffer, 1 + 1 + 2 + dataSize + 1); // Type + Counter + Timestamp + Data + CRC
 
   // Example marker
-  Marker marker = {1, 2, 0x5678, "Example Marker"};
+  mlg_Marker marker = {1, 2, 0x5678, "Example Marker"};
 
   uint8_t markerBuffer[256];
-  result = packMarker(markerBuffer, sizeof(markerBuffer), &marker);
+  result = mlg_packMarker(markerBuffer, sizeof(markerBuffer), &marker);
 
   if (result == -1) {
     printf("Marker buffer overflow\n");
@@ -400,12 +323,7 @@ void test() {
   }
 
   // Print marker buffer for verification
-  printBuffer(markerBuffer, 1 + 1 + 2 + sizeof(marker.message));
+  mlg_printBuffer(markerBuffer, 1 + 1 + 2 + sizeof(marker.message));
 
   free(data);
-}
-
-int main() {
-  test();
-  return 0;
 }
