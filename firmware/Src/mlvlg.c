@@ -123,7 +123,7 @@ int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, L
   }
 
   // Calculate dataBeginIndex and infoDataStart
-  header->dataBeginIndex = sizeof(MLVLG_Header) + numScalarFields * sizeof(LoggerField_Scalar) + numBitFields * sizeof(LoggerField_Bit);
+  header->dataBeginIndex = infoDataStartOffset + sizeof(MLVLG_Header) + numScalarFields * sizeof(LoggerField_Scalar) + numBitFields * sizeof(LoggerField_Bit);
   header->infoDataStart = infoDataStartOffset;
 
   // Copy fileFormat
@@ -320,11 +320,14 @@ void test() {
   // Example Bit Field Names
   const char* bitFieldNames = "Bit0\0Bit1\0Bit2\0Bit3\0Bit4\0Bit5\0Bit6\0Bit7\0";
 
+  // Example Info Data
+  const char* infoData = "Additional Info Data";
+
   size_t bufferSize = MAX_BUFFER_SIZE;
   uint8_t buffer[bufferSize];
   memset(buffer, 0, bufferSize);
 
-  int result = packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit));
+  int result = packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit) + strlen(bitFieldNames) + 1);
 
   if (result == -1) {
     printf("Header buffer overflow\n");
@@ -337,10 +340,18 @@ void test() {
     printf("Bit Field Names buffer overflow\n");
     return;
   }
-  memcpy(buffer + header.dataBeginIndex, bitFieldNames, bitFieldNamesLength);
+  memcpy(buffer + sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit), bitFieldNames, bitFieldNamesLength);
+
+  // Copy Info Data to buffer
+  size_t infoDataLength = strlen(infoData) + 1; // Include null terminator
+  if (infoDataLength + header.dataBeginIndex + bitFieldNamesLength > bufferSize) {
+    printf("Info Data buffer overflow\n");
+    return;
+  }
+  memcpy(buffer + header.dataBeginIndex, infoData, infoDataLength);
 
   // Print header buffer for verification
-  printBuffer(buffer, header.dataBeginIndex + bitFieldNamesLength);
+  printBuffer(buffer, header.dataBeginIndex + infoDataLength);
 
   // Example data block
   size_t dataSize = calculateDataSize(scalarFields, bitFields, 4, 4);
