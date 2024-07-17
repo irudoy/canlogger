@@ -113,7 +113,7 @@ size_t calculateDataSize(LoggerField_Scalar* scalarFields, LoggerField_Bit* bitF
   return size;
 }
 
-int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize) {
+int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
   size_t offset = 0;
 
   // Ensure buffer is large enough
@@ -122,8 +122,9 @@ int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, L
     return -1; // Buffer overflow
   }
 
-  // Calculate dataBeginIndex
+  // Calculate dataBeginIndex and infoDataStart
   header->dataBeginIndex = sizeof(MLVLG_Header) + numScalarFields * sizeof(LoggerField_Scalar) + numBitFields * sizeof(LoggerField_Bit);
+  header->infoDataStart = infoDataStartOffset;
 
   // Copy fileFormat
   memcpy(buffer + offset, header->fileFormat, sizeof(header->fileFormat));
@@ -316,19 +317,30 @@ void test() {
       {F32, "F32Field", "F32", FLOAT, 1.0f, 0.0f, 2, "Category"}
   };
 
+  // Example Bit Field Names
+  const char* bitFieldNames = "Bit0\0Bit1\0Bit2\0Bit3\0Bit4\0Bit5\0Bit6\0Bit7\0";
+
   size_t bufferSize = MAX_BUFFER_SIZE;
   uint8_t buffer[bufferSize];
   memset(buffer, 0, bufferSize);
 
-  int result = packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize);
+  int result = packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit));
 
   if (result == -1) {
     printf("Header buffer overflow\n");
     return;
   }
 
+  // Copy Bit Field Names to buffer
+  size_t bitFieldNamesLength = strlen(bitFieldNames) + 1; // Include null terminator
+  if (bitFieldNamesLength + header.dataBeginIndex > bufferSize) {
+    printf("Bit Field Names buffer overflow\n");
+    return;
+  }
+  memcpy(buffer + header.dataBeginIndex, bitFieldNames, bitFieldNamesLength);
+
   // Print header buffer for verification
-  printBuffer(buffer, sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit));
+  printBuffer(buffer, header.dataBeginIndex + bitFieldNamesLength);
 
   // Example data block
   size_t dataSize = calculateDataSize(scalarFields, bitFields, 4, 4);
