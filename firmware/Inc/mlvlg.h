@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// Максимальный размер буфера 1 MB
-#define MAX_BUFFER_SIZE (1024 * 1024)
+// Максимальный размер буфера 5 KB
+#define MAX_BUFFER_SIZE 1024 * 5
 
 // Структура заголовка MLVLG
 typedef struct {
