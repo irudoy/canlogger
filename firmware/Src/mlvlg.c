@@ -79,6 +79,7 @@ typedef struct {
   char message[50];      // Null-terminated message
 } __attribute__((packed)) Marker;
 
+// Calculate size of field based on its type
 size_t getFieldSize(FieldType type) {
   switch (type) {
     case U08:
@@ -102,6 +103,7 @@ size_t getFieldSize(FieldType type) {
   }
 }
 
+// Calculate total data size for scalar and bit fields
 size_t calculateDataSize(LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
   size_t size = 0;
   for (int i = 0; i < numScalarFields; ++i) {
@@ -113,6 +115,7 @@ size_t calculateDataSize(LoggerField_Scalar* scalarFields, LoggerField_Bit* bitF
   return size;
 }
 
+// Pack MLVLG header into buffer
 int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields, uint8_t* buffer, size_t bufferSize, uint32_t infoDataStartOffset) {
   size_t offset = 0;
 
@@ -221,6 +224,7 @@ int packHeaderToBuffer(MLVLG_Header* header, LoggerField_Scalar* scalarFields, L
   return 0; // Success
 }
 
+// Pack DataBlock into buffer
 int packDataBlock(uint8_t* buffer, size_t bufferSize, DataBlock* dataBlock, LoggerField_Scalar* scalarFields, LoggerField_Bit* bitFields, uint8_t numScalarFields, uint8_t numBitFields) {
   size_t offset = 0;
 
@@ -256,6 +260,7 @@ int packDataBlock(uint8_t* buffer, size_t bufferSize, DataBlock* dataBlock, Logg
   return 0; // Success
 }
 
+// Pack Marker into buffer
 int packMarker(uint8_t* buffer, size_t bufferSize, Marker* marker) {
   size_t offset = 0;
 
@@ -282,6 +287,7 @@ int packMarker(uint8_t* buffer, size_t bufferSize, Marker* marker) {
   return 0; // Success
 }
 
+// Print buffer as hex for verification
 void printBuffer(uint8_t* buffer, size_t size) {
   for (size_t i = 0; i < size; i++) {
     printf("%02X ", buffer[i]);
@@ -289,6 +295,7 @@ void printBuffer(uint8_t* buffer, size_t size) {
   printf("\n");
 }
 
+// Test function to verify implementation
 void test() {
   // Initialize example header
   MLVLG_Header header = {
@@ -327,6 +334,7 @@ void test() {
   uint8_t buffer[bufferSize];
   memset(buffer, 0, bufferSize);
 
+  // Pack header into buffer
   int result = packHeaderToBuffer(&header, scalarFields, bitFields, 4, 4, buffer, bufferSize, sizeof(MLVLG_Header) + 4 * sizeof(LoggerField_Scalar) + 4 * sizeof(LoggerField_Bit) + strlen(bitFieldNames) + 1);
 
   if (result == -1) {
