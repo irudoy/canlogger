@@ -18,3 +18,5 @@ scripts/fonts/out/**/*
 !scripts/fonts/out/.gitkeep
 
 cmake-build-*/
+
+node_modules
