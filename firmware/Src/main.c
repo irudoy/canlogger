@@ -115,14 +115,13 @@ int main(void)
   ring_buf_init(&can_rx_buf);
 
   // Init SD, read config, write MLG header
-  if (lw_init(&config, &field_values) != 0) {
-    // Error: no SD, no config, or parse error — LEDs will blink
-    while (1) { lw_update_leds(); }
-  }
+  int init_ok = (lw_init(&config, &field_values) == 0);
 
-  // Start CAN reception
-  can_drv_init(&can_rx_buf);
-  can_drv_start();
+  if (init_ok) {
+    // Start CAN reception
+    can_drv_init(&can_rx_buf);
+    can_drv_start();
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -130,19 +129,23 @@ int main(void)
   while (1)
   {
     if (lw_shutdown == 1) {
-      can_drv_stop();
-      lw_stop();
+      if (init_ok) {
+        can_drv_stop();
+        lw_stop();
+      }
       break;
     }
 
-    // Drain CAN ring buffer → update shadow values
-    can_Frame frame;
-    while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
-      can_map_process(&field_values, &config, &frame);
-    }
+    if (init_ok) {
+      // Drain CAN ring buffer → update shadow values
+      can_Frame frame;
+      while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
+        can_map_process(&field_values, &config, &frame);
+      }
 
-    // Write data block at configured interval
-    lw_tick(&field_values, config.log_interval_ms);
+      // Write data block at configured interval
+      lw_tick(&field_values, config.log_interval_ms);
+    }
 
     // Update LED indication
     lw_update_leds();

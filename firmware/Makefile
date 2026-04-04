@@ -48,7 +48,33 @@ erase:
 reset:
 	$(PROGRAMMER) -c port=SWD -rst
 
-# --- Debug ---
+# --- Debug (OpenOCD) ---
+
+ocd-server:
+	openocd -f interface/stlink.cfg -f target/stm32f4x.cfg
+
+ocd-debug: build
+	$(GDB) $(ELF) \
+		-ex "target extended-remote :3333" \
+		-ex "monitor reset halt" \
+		-ex "load"
+
+ocd-status:
+	$(GDB) $(ELF) -batch \
+		-ex "target extended-remote :3333" \
+		-ex "monitor reset run" \
+		-ex "shell sleep 3" \
+		-ex "monitor halt" \
+		-ex "print error_state" \
+		-ex "print lw_shutdown" \
+		-ex "print (char*)log_file_name" \
+		-ex "print file_counter" \
+		-ex "print error_count" \
+		-ex "print block_counter" \
+		-ex "bt" \
+		-ex "monitor resume"
+
+# --- Debug (ST-LINK GDB server, requires recent ST-Link firmware) ---
 
 gdb-server:
 	$(GDB_SERVER) -p 3333 -d -e -cp $(dir $(PROGRAMMER))

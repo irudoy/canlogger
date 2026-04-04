@@ -31,21 +31,22 @@
 
 21 тест (unit + snapshot), 0 failures. 453 записи при 20Hz, валидировано mlg-converter и MegaLogViewer.
 
-### MVP — Базовый рабочий логгер
+### MVP — Базовый рабочий логгер — in progress
 
 **Цель:** Записать CAN-данные с cansult на SD в валидный MLVLG-файл, открываемый в MegaLogViewer.
 
 Задачи:
-- [ ] Включить CAN-периферию в CubeMX (CAN1, 500 kbit/s)
-- [ ] Реализовать `can_drv` — CAN RX через прерывания → ring buffer (`Lib/ring_buf`)
-- [ ] Реализовать `Lib/config` — INI-парсер конфигурации с SD
-- [ ] Реализовать `Lib/can_map` — маппинг CAN-фреймов → MLG field values по конфигу
-- [ ] Реализовать `sd_write` — запись MLG header + data blocks на SD (замена `log_writer`)
-- [ ] Интеграция в main loop: config → can_map → mlvlg → sd_write
-- [ ] Поведение без конфига: ошибка + LED индикация
-- [ ] Ручной конфиг для cansult (0x666, 0x667, 0x668)
-- [ ] E2E тест: cansult → canlogger → SD → MegaLogViewer
-- [ ] Тесты: парсер конфига, маппинг, bit extraction, ring buffer
+- [x] Включить CAN-периферию в CubeMX (CAN1 PB8/PB9, 500 kbit/s)
+- [x] Реализовать `can_drv` — CAN RX через прерывания → ring buffer (`Lib/ring_buf`)
+- [x] Реализовать `Lib/config` — INI-парсер конфигурации с SD
+- [x] Реализовать `Lib/can_map` — маппинг CAN-фреймов → MLG field values по конфигу
+- [x] Реализовать config-driven запись MLG header + data blocks на SD (в `log_writer`)
+- [x] Интеграция в main loop: config → can_map → mlvlg → sd_write
+- [x] Поведение без конфига: ошибка + LED индикация + K1 shutdown
+- [x] Ручной конфиг для cansult (0x666, 0x667, 0x668) — `test/cansult_config.ini`
+- [x] Тесты: парсер конфига, маппинг, bit extraction, ring buffer (49 тестов)
+- [x] Проверка на устройстве: конфиг читается, 5 полей, 725 записей, валидный MLG
+- [ ] E2E тест: cansult → canlogger → SD → MegaLogViewer (ожидает пайку CAN hat)
 
 ### v1.0 — Стабильный продукт
 
