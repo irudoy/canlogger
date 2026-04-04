@@ -91,15 +91,18 @@ typedef struct {
   uint8_t  dlc;
 } can_Frame;
 
+// Максимальный размер record (CFG_MAX_FIELDS * 8 байт для S64 = 256)
+#define CAN_MAP_MAX_RECORD_SIZE 256
+
 // Хранит последние значения всех полей (shadow buffer)
 typedef struct {
-  uint8_t* values;       // буфер сырых значений (record_length байт, big-endian)
+  uint8_t  values[CAN_MAP_MAX_RECORD_SIZE]; // статический буфер, big-endian
   size_t   record_length;
   uint16_t num_fields;
   uint8_t  updated;      // флаг: были ли обновления с последнего сброса
 } can_FieldValues;
 
-// Инициализирует shadow buffer по конфигу.
+// Инициализирует shadow buffer по конфигу. Вычисляет record_length, обнуляет values.
 int can_map_init(can_FieldValues* fv, const cfg_Config* cfg);
 
 // Обрабатывает CAN-фрейм: извлекает значения и обновляет shadow buffer.
@@ -261,6 +264,62 @@ category = Engine
 - `start_byte` + `bit_length` определяют какие байты/биты извлекать из CAN data[0..7]
 - `type` определяет размер значения в MLG data block
 - Несколько полей могут ссылаться на один `can_id`
+
+## Жизненный цикл (main.c)
+
+### Инициализация
+
+```
+1. HAL_Init(), SystemClock_Config()
+2. GPIO, SDIO, RTC init (CubeMX)
+3. sd_init() — монтирование SD
+4. sd_read_file("config.ini") → буфер
+5. cfg_parse(буфер) → cfg_Config
+6.   если нет конфига или ошибка парсинга → led_set_state(LED_NO_CONFIG), стоп
+7. can_map_init(cfg) → can_FieldValues (shadow buffer)
+8. Запись MLG header + field descriptors на SD
+9. CAN init (CubeMX HAL), запуск приёма
+10. led_set_state(LED_LOGGING)
+```
+
+### Main loop
+
+```
+while (!shutdown) {
+    // 1. Вычитать все CAN-фреймы из ring buffer
+    while (ring_buf_pop(&rb, &frame))
+        can_map_process(&fv, &cfg, &frame);
+
+    // 2. По таймеру — записать data block
+    if (HAL_GetTick() - last_log >= cfg.log_interval_ms) {
+        mlg_write_data_block(buf, ..., fv.values, fv.record_length);
+        sd_write(buf, block_size);
+        last_log = HAL_GetTick();
+    }
+
+    // 3. Ротация файла при превышении размера
+    // 4. LED индикация
+}
+```
+
+### Shutdown (по кнопке K1 или потере питания)
+
+```
+1. Дописать текущий буфер на SD
+2. sd_close()
+3. led_set_state(LED_STOPPED)
+```
+
+## Обработка ошибок
+
+| Ситуация | Поведение |
+|----------|-----------|
+| Нет SD карты | `sd_init()` fail → LED_ERROR, не стартуем |
+| Нет config.ini | `sd_read_file()` fail → LED_NO_CONFIG, не стартуем |
+| Невалидный конфиг | `cfg_parse()`/`cfg_validate()` fail → LED_NO_CONFIG, не стартуем |
+| Ошибка записи SD | Retry до N раз, затем LED_ERROR, прекращаем запись |
+| Ring buffer переполнен | `ring_buf_push()` возвращает ошибку, фрейм теряется (счётчик потерь) |
+| Файл достиг 4MB | Закрыть текущий, открыть новый (ротация) |
 
 ## Стратегия тестирования
 
