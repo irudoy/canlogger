@@ -24,6 +24,9 @@
 /* USER CODE BEGIN Includes */
 #include "generated_rtc_time.h"
 #include "log_writer.h"
+#include "can_drv.h"
+#include "ring_buf.h"
+#include "can_map.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,6 +53,9 @@ SD_HandleTypeDef hsd;
 
 /* USER CODE BEGIN PV */
 uint8_t lw_shutdown = 0;
+static ring_Buffer can_rx_buf;
+static cfg_Config config;
+static can_FieldValues field_values;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,7 +112,17 @@ int main(void)
   /* Initialize interrupts */
   MX_NVIC_Init();
   /* USER CODE BEGIN 2 */
-  lw_init();
+  ring_buf_init(&can_rx_buf);
+
+  // Init SD, read config, write MLG header
+  if (lw_init(&config, &field_values) != 0) {
+    // Error: no SD, no config, or parse error — LEDs will blink
+    while (1) { lw_update_leds(); }
+  }
+
+  // Start CAN reception
+  can_drv_init(&can_rx_buf);
+  can_drv_start();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -114,10 +130,22 @@ int main(void)
   while (1)
   {
     if (lw_shutdown == 1) {
+      can_drv_stop();
       lw_stop();
       break;
     }
-    lw_tick();
+
+    // Drain CAN ring buffer → update shadow values
+    can_Frame frame;
+    while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
+      can_map_process(&field_values, &config, &frame);
+    }
+
+    // Write data block at configured interval
+    lw_tick(&field_values, config.log_interval_ms);
+
+    // Update LED indication
+    lw_update_leds();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

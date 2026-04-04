@@ -1,5 +1,8 @@
 #include "unity.h"
 #include "mlvlg.h"
+#include "config.h"
+#include "can_map.h"
+#include "ring_buf.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>

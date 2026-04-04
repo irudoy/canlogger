@@ -1,6 +1,7 @@
 #include "unity.h"
 #include "config.h"
 #include <string.h>
+#include <stdio.h>
 
 static cfg_Config cfg;
 
@@ -214,6 +215,53 @@ void test_decimal_can_id(void) {
   TEST_ASSERT_EQUAL_HEX32(0x667, cfg.fields[0].can_id);
 }
 
+// --- Cansult config ---
+
+void test_parse_cansult_config(void) {
+  FILE* f = fopen("cansult_config.ini", "r");
+  TEST_ASSERT_NOT_NULL_MESSAGE(f, "cansult_config.ini not found — run from test/ dir");
+  char buf[4096];
+  size_t len = fread(buf, 1, sizeof(buf) - 1, f);
+  fclose(f);
+  buf[len] = '\0';
+
+  int ret = cfg_parse(buf, len, &cfg);
+  TEST_ASSERT_EQUAL(CFG_OK, ret);
+  TEST_ASSERT_EQUAL(50, cfg.log_interval_ms);
+  TEST_ASSERT_EQUAL(5, cfg.num_fields);
+
+  // Battery: 0x666, byte 0, U08, scale 0.0733
+  TEST_ASSERT_EQUAL_HEX32(0x666, cfg.fields[0].can_id);
+  TEST_ASSERT_EQUAL_STRING("Battery", cfg.fields[0].name);
+  TEST_ASSERT_EQUAL_STRING("V", cfg.fields[0].units);
+  TEST_ASSERT_EQUAL(0, cfg.fields[0].start_byte);
+  TEST_ASSERT_EQUAL(0, cfg.fields[0].type); // U08
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0733f, cfg.fields[0].scale);
+
+  // Coolant: 0x666, byte 1, U08, offset -50
+  TEST_ASSERT_EQUAL_STRING("Coolant", cfg.fields[1].name);
+  TEST_ASSERT_EQUAL(1, cfg.fields[1].start_byte);
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, -50.0f, cfg.fields[1].offset);
+
+  // Throttle: 0x666, byte 4
+  TEST_ASSERT_EQUAL_STRING("Throttle", cfg.fields[2].name);
+  TEST_ASSERT_EQUAL(4, cfg.fields[2].start_byte);
+
+  // Speed: 0x667, byte 0, U08
+  TEST_ASSERT_EQUAL_HEX32(0x667, cfg.fields[3].can_id);
+  TEST_ASSERT_EQUAL_STRING("Speed", cfg.fields[3].name);
+
+  // RPM: 0x667, byte 1, U16, big-endian, scale 12.5
+  TEST_ASSERT_EQUAL_HEX32(0x667, cfg.fields[4].can_id);
+  TEST_ASSERT_EQUAL_STRING("RPM", cfg.fields[4].name);
+  TEST_ASSERT_EQUAL(1, cfg.fields[4].start_byte);
+  TEST_ASSERT_EQUAL(16, cfg.fields[4].bit_length);
+  TEST_ASSERT_EQUAL(2, cfg.fields[4].type); // U16
+  TEST_ASSERT_EQUAL(1, cfg.fields[4].is_big_endian);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.5f, cfg.fields[4].scale);
+  TEST_ASSERT_EQUAL_STRING("Engine", cfg.fields[4].category);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_parse_minimal);
@@ -226,5 +274,6 @@ int main(void) {
   RUN_TEST(test_too_many_fields);
   RUN_TEST(test_hex_can_id);
   RUN_TEST(test_decimal_can_id);
+  RUN_TEST(test_parse_cansult_config);
   return UNITY_END();
 }
