@@ -67,7 +67,10 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
     while (eol < end && *eol != '\n') eol++;
 
     size_t line_len = eol - p;
-    if (line_len >= sizeof(line)) line_len = sizeof(line) - 1;
+    if (line_len >= sizeof(line)) {
+      p = eol + 1;
+      continue; // skip lines longer than buffer
+    }
     memcpy(line, p, line_len);
     line[line_len] = '\0';
     trim_right(line);
@@ -142,7 +145,9 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
       } else if (strcmp(raw_key, "bit_length") == 0) {
         f->bit_length = (uint8_t)parse_uint32(val_buf);
       } else if (strcmp(raw_key, "type") == 0) {
-        f->type = parse_type(val_buf);
+        uint8_t t = parse_type(val_buf);
+        if (t == 0xFF) return CFG_ERR_VALUE;
+        f->type = t;
       } else if (strcmp(raw_key, "scale") == 0) {
         sscanf(val_buf, "%f", &f->scale);
       } else if (strcmp(raw_key, "offset") == 0) {

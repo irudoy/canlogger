@@ -52,7 +52,7 @@ RTC_HandleTypeDef hrtc;
 SD_HandleTypeDef hsd;
 
 /* USER CODE BEGIN PV */
-uint8_t lw_shutdown = 0;
+volatile uint8_t lw_shutdown = 0;
 static ring_Buffer can_rx_buf;
 static cfg_Config config;
 static can_FieldValues field_values;
@@ -72,7 +72,9 @@ static void MX_NVIC_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-  lw_shutdown = 1;
+  if (GPIO_Pin == USR_BTN_3_K1_Pin) {
+    lw_shutdown = 1;
+  }
 }
 /* USER CODE END 0 */
 

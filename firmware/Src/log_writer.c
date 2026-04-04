@@ -24,6 +24,7 @@ typedef struct {
 
 static FIL log_file_obj;
 static char log_file_name[13];
+static uint32_t last_tick_led1 = 0;
 static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
 static uint32_t file_counter = 0;
@@ -140,8 +141,8 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
   }
   last_log_tick = now;
 
-  // Timestamp: ms → 10us units
-  uint16_t timestamp_10us = (uint16_t)((now * 1000) / 10);
+  // Timestamp: ms → 10us units (use uint64_t to avoid overflow at ~1.2 hours)
+  uint16_t timestamp_10us = (uint16_t)(((uint64_t)now * 100) & 0xFFFF);
 
   int ret = mlg_write_data_block(write_buf, sizeof(write_buf),
                                   block_counter++, timestamp_10us,
@@ -182,7 +183,7 @@ void lw_stop(void) {
 
 void lw_update_leds(void) {
   if (error_state) {
-    toggle_led(LED1, &last_tick_led2, BLINK_INTERVAL_ERROR);
+    toggle_led(LED1, &last_tick_led1, BLINK_INTERVAL_ERROR);
     toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_ERROR);
   } else {
     toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_NORMAL);

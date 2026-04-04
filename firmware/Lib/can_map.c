@@ -16,20 +16,22 @@ int can_map_init(can_FieldValues* fv, const cfg_Config* cfg) {
 
 // Extract a value from CAN data at given byte offset and bit_length.
 // Writes result as big-endian into dest.
-static void extract_value(const uint8_t* can_data, uint8_t start_byte, uint8_t bit_length,
-                           uint8_t is_big_endian, uint8_t* dest) {
+// Returns 0 on success, -1 if out of bounds
+static int extract_value(const uint8_t* can_data, uint8_t start_byte, uint8_t bit_length,
+                          uint8_t is_big_endian, uint8_t* dest) {
   size_t byte_count = bit_length / 8;
   if (byte_count == 0) byte_count = 1;
 
+  if (start_byte + byte_count > 8) return -1; // CAN frame is 8 bytes max
+
   if (is_big_endian) {
-    // CAN data already big-endian, copy directly
     memcpy(dest, can_data + start_byte, byte_count);
   } else {
-    // CAN data little-endian, swap to big-endian
     for (size_t i = 0; i < byte_count; i++) {
       dest[i] = can_data[start_byte + byte_count - 1 - i];
     }
   }
+  return 0;
 }
 
 int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame* frame) {
@@ -40,10 +42,11 @@ int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame*
     size_t field_size = mlg_field_data_size((mlg_FieldType)cfg->fields[i].type);
 
     if (cfg->fields[i].can_id == frame->id) {
-      extract_value(frame->data, cfg->fields[i].start_byte,
-                    cfg->fields[i].bit_length, cfg->fields[i].is_big_endian,
-                    fv->values + offset);
-      updated++;
+      if (extract_value(frame->data, cfg->fields[i].start_byte,
+                        cfg->fields[i].bit_length, cfg->fields[i].is_big_endian,
+                        fv->values + offset) == 0) {
+        updated++;
+      }
     }
 
     offset += field_size;

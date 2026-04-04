@@ -169,6 +169,21 @@ void test_build_mlg_fields(void) {
   TEST_ASSERT_EQUAL(1, mlg_fields[0].digits);
 }
 
+// --- Out-of-bounds extraction ---
+
+void test_process_out_of_bounds_ignored(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x100, .start_byte = 7, .bit_length = 16, .type = 2 // U16 at byte 7 = overflow
+  };
+  can_map_init(&fv, &cfg);
+
+  can_Frame frame = { .id = 0x100, .data = {0}, .dlc = 8 };
+  int updated = can_map_process(&fv, &cfg, &frame);
+  TEST_ASSERT_EQUAL(0, updated); // should be skipped
+  TEST_ASSERT_EQUAL_HEX8(0x00, fv.values[0]); // unchanged
+}
+
 // --- reset_updated ---
 
 void test_reset_updated(void) {
@@ -193,6 +208,7 @@ int main(void) {
   RUN_TEST(test_process_u16_big_endian);
   RUN_TEST(test_two_fields_same_id);
   RUN_TEST(test_two_fields_different_ids);
+  RUN_TEST(test_process_out_of_bounds_ignored);
   RUN_TEST(test_build_mlg_fields);
   RUN_TEST(test_reset_updated);
   return UNITY_END();

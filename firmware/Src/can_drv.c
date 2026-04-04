@@ -6,7 +6,7 @@ extern CAN_HandleTypeDef hcan1;
 
 static ring_Buffer* rx_ring_buf = NULL;
 
-static void configure_filter(void) {
+static int configure_filter(void) {
   CAN_FilterTypeDef filter;
   filter.FilterBank = 0;
   filter.FilterMode = CAN_FILTERMODE_IDMASK;
@@ -18,13 +18,12 @@ static void configure_filter(void) {
   filter.FilterFIFOAssignment = CAN_RX_FIFO0;
   filter.FilterActivation = ENABLE;
   filter.SlaveStartFilterBank = 14;
-  HAL_CAN_ConfigFilter(&hcan1, &filter);
+  return (HAL_CAN_ConfigFilter(&hcan1, &filter) == HAL_OK) ? 0 : -1;
 }
 
 int can_drv_init(ring_Buffer* rb) {
   rx_ring_buf = rb;
-  configure_filter();
-  return 0;
+  return configure_filter();
 }
 
 int can_drv_start(void) {
