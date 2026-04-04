@@ -33,14 +33,13 @@ static uint8_t parse_type(const char* val) {
 }
 
 static uint32_t parse_uint32(const char* val) {
+  unsigned long result = 0;
   if (val[0] == '0' && (val[1] == 'x' || val[1] == 'X')) {
-    uint32_t result = 0;
-    sscanf(val, "%x", &result);
-    return result;
+    sscanf(val, "%lx", &result);
+  } else {
+    sscanf(val, "%lu", &result);
   }
-  uint32_t result = 0;
-  sscanf(val, "%u", &result);
-  return result;
+  return (uint32_t)result;
 }
 
 static void copy_str(char* dest, const char* src, size_t max_len) {

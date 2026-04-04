@@ -32,7 +32,6 @@ typedef struct {
 } DateTime;
 
 static FIL log_file_obj;
-static uint32_t bytes_written;
 static char log_file_name[13];
 static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
@@ -196,9 +195,9 @@ void lw_stop(void) {
 static FRESULT create_new_log_file(void) {
   DateTime dateTime;
   get_current_datetime(&dateTime);
-  sprintf(log_file_name, "%02d%02d%02d%02d.MLG",
-          dateTime.day, dateTime.hour, dateTime.minute,
-          (int)(file_counter++ % 100));
+  snprintf(log_file_name, sizeof(log_file_name), "%02d%02d%02d%02d.MLG",
+           dateTime.day % 100, dateTime.hour % 100,
+           dateTime.minute % 100, (int)(file_counter++ % 100));
 
   FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_ALWAYS | FA_WRITE);
   if (res != FR_OK) {

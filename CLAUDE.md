@@ -69,10 +69,10 @@ cd firmware && make test
 
 ## Hardware
 
-- MCU: STM32F407VET6, 168MHz
-- Board docs: https://stm32-base.org/boards/STM32F407VET6-STM32-F4VE-V2.0.html
-- Board schematic: `docs/reference/STM32F407VET6-STM32_F4VE_V2.0_schematic.pdf`
+See `docs/HARDWARE.md` for full pin assignments, SWD wiring, LED states, hat design.
+
+- MCU: STM32F407VET6, 168MHz. Board: STM32_F4VE V2.0
 - SD: SDIO 1-bit mode, FatFS
+- CAN1: PB8 (RX), PB9 (TX) — 500 kbit/s
 - LEDs: PA6, PA7 (active-low). Button: PE3 (shutdown)
-- CAN: not yet configured in CubeMX (MVP blocker)
-- E2E test source: `../cansult` project (Nissan Consult → CAN adapter, 3 messages @ 20Hz, 500kbit/s)
+- E2E test source: `../cansult` (Nissan Consult → CAN, 3 messages @ 20Hz)
