@@ -25,6 +25,23 @@ void test_swapend_u32(void) {
   TEST_ASSERT_EQUAL_HEX8(0xEF, out[3]);
 }
 
+void test_swapend_float(void) {
+  float val = 1.0f; // IEEE 754: 0x3F800000
+  uint8_t out[4];
+  mlg_swapend(out, &val, 4);
+  TEST_ASSERT_EQUAL_HEX8(0x3F, out[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x80, out[1]);
+  TEST_ASSERT_EQUAL_HEX8(0x00, out[2]);
+  TEST_ASSERT_EQUAL_HEX8(0x00, out[3]);
+}
+
+void test_swapend_single_byte(void) {
+  uint8_t val = 0xAB;
+  uint8_t out;
+  mlg_swapend(&out, &val, 1);
+  TEST_ASSERT_EQUAL_HEX8(0xAB, out);
+}
+
 // --- mlg_field_data_size ---
 
 void test_field_data_size(void) {
@@ -153,6 +170,23 @@ void test_write_field_size_and_layout(void) {
   TEST_ASSERT_EQUAL_UINT8('n', buf[56]);
 }
 
+void test_write_field_buffer_too_small(void) {
+  mlg_Field field = { .type = MLG_U08, .name = "X" };
+  uint8_t buf[50];
+  TEST_ASSERT_EQUAL(-1, mlg_write_field(buf, sizeof(buf), &field));
+}
+
+void test_write_field_negative_digits(void) {
+  mlg_Field field = {
+    .type = MLG_F32, .name = "Temp", .units = "C",
+    .scale = 0.1f, .transform = 0.0f, .digits = -1
+  };
+  uint8_t buf[89];
+  mlg_write_field(buf, sizeof(buf), &field);
+  // digits at offset 54, should preserve sign (-1 = 0xFF as uint8_t)
+  TEST_ASSERT_EQUAL_HEX8(0xFF, buf[54]);
+}
+
 // --- mlg_write_data_block ---
 
 void test_write_data_block_format(void) {
@@ -179,6 +213,12 @@ void test_write_data_block_crc_overflow(void) {
   TEST_ASSERT_EQUAL_HEX8(0x01, buf[6]); // overflow wraps
 }
 
+void test_write_data_block_buffer_too_small(void) {
+  uint8_t data[] = { 0x01, 0x02, 0x03 };
+  uint8_t buf[5]; // needs 8 (1+1+2+3+1)
+  TEST_ASSERT_EQUAL(-1, mlg_write_data_block(buf, sizeof(buf), 0, 0, data, 3));
+}
+
 // --- mlg_write_marker ---
 
 void test_write_marker_format(void) {
@@ -196,6 +236,11 @@ void test_write_marker_format(void) {
   TEST_ASSERT_EQUAL_UINT8('e', buf[5]);
   // Padded with zeros
   TEST_ASSERT_EQUAL_UINT8(0, buf[4 + 11]);
+}
+
+void test_write_marker_buffer_too_small(void) {
+  uint8_t buf[30];
+  TEST_ASSERT_EQUAL(-1, mlg_write_marker(buf, sizeof(buf), 0, 0, "test"));
 }
 
 // --- mlg_record_length ---
@@ -270,13 +315,19 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_swapend_u16);
   RUN_TEST(test_swapend_u32);
+  RUN_TEST(test_swapend_float);
+  RUN_TEST(test_swapend_single_byte);
   RUN_TEST(test_field_data_size);
   RUN_TEST(test_write_header_magic);
   RUN_TEST(test_write_header_buffer_too_small);
   RUN_TEST(test_write_field_size_and_layout);
+  RUN_TEST(test_write_field_buffer_too_small);
+  RUN_TEST(test_write_field_negative_digits);
   RUN_TEST(test_write_data_block_format);
   RUN_TEST(test_write_data_block_crc_overflow);
+  RUN_TEST(test_write_data_block_buffer_too_small);
   RUN_TEST(test_write_marker_format);
+  RUN_TEST(test_write_marker_buffer_too_small);
   RUN_TEST(test_record_length_multi_field);
   RUN_TEST(test_full_file_structure);
   return UNITY_END();

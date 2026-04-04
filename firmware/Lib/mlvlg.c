@@ -1,6 +1,7 @@
 #include "mlvlg.h"
 #include <string.h>
 
+// Assumes little-endian host (x86, ARM Cortex-M). Converts to big-endian wire format.
 void mlg_swapend(void* dest, const void* src, size_t num) {
   const uint8_t* s = (const uint8_t*)src;
   uint8_t* d = (uint8_t*)dest;
@@ -55,8 +56,8 @@ int mlg_write_field(uint8_t* buf, size_t buf_size, const mlg_Field* field) {
   mlg_swapend(buf + off, &field->transform, sizeof(float));
   off += sizeof(float);
 
-  // Digits (1 byte)
-  buf[off++] = (uint8_t)field->digits;
+  // Digits (1 byte, signed per spec)
+  buf[off++] = field->digits;
 
   // Category (34 bytes)
   memcpy(buf + off, field->category, MLG_FIELD_CATEGORY_SIZE);

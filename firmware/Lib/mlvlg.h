@@ -39,13 +39,13 @@ typedef enum {
 // Scalar logger field descriptor
 typedef struct {
   uint8_t type;
-  uint8_t name[MLG_FIELD_NAME_SIZE];
-  uint8_t units[MLG_FIELD_UNITS_SIZE];
+  char name[MLG_FIELD_NAME_SIZE];
+  char units[MLG_FIELD_UNITS_SIZE];
   uint8_t display_style;
   float scale;
   float transform;
   int8_t digits;
-  uint8_t category[MLG_FIELD_CATEGORY_SIZE];
+  char category[MLG_FIELD_CATEGORY_SIZE];
 } mlg_Field;
 
 // File header (24 bytes on wire)
