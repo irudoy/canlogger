@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Universal CAN bus data logger. Reads CAN frames, maps them to parameters via config file on SD, writes MLVLG v2 binary logs (compatible with MegaLogViewer). Config-driven — no reflashing needed for different vehicles/protocols.
 
+**Current stage: PoC complete, working on MVP.** MLVLG encoder works end-to-end (host tests → SD → MegaLogViewer). Next: CAN reception + config-driven field mapping.
+
 Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
 
@@ -14,7 +16,7 @@ Architecture and module design: `docs/ARCHITECTURE.md`
 ```
 firmware/
 ├── Lib/          # Pure business logic (no HAL), host-testable
-│   ├── mlvlg.*   # MLVLG v2 encoder (implemented, tested)
+│   ├── mlvlg.*   # MLVLG v2 encoder (done, 17 unit + 4 snapshot tests)
 │   ├── config.*  # INI config parser (planned)
 │   ├── can_map.* # CAN → field values mapper (planned)
 │   └── ring_buf.*# Lock-free SPSC ring buffer (planned)
@@ -67,7 +69,9 @@ cd firmware && make test
 
 ## Hardware
 
-- MCU: STM32F407VET6, 168MHz, board schematic: `docs/reference/STM32F407VET6-STM32_F4VE_V2.0_schematic.pdf`
+- MCU: STM32F407VET6, 168MHz
+- Board docs: https://stm32-base.org/boards/STM32F407VET6-STM32-F4VE-V2.0.html
+- Board schematic: `docs/reference/STM32F407VET6-STM32_F4VE_V2.0_schematic.pdf`
 - SD: SDIO 1-bit mode, FatFS
 - LEDs: PA6, PA7 (active-low). Button: PE3 (shutdown)
 - CAN: not yet configured in CubeMX (MVP blocker)
