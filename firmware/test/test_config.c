@@ -203,6 +203,26 @@ void test_invalid_type_rejected(void) {
   TEST_ASSERT_EQUAL(CFG_ERR_VALUE, ret);
 }
 
+void test_zero_bit_length_rejected(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x100\nname = T\nunits = u\n"
+    "start_byte = 0\nbit_length = 0\ntype = U08\n"
+    "scale = 1.0\noffset = 0.0\n";
+  int ret = cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(CFG_ERR_VALUE, ret);
+}
+
+void test_start_byte_overflow_rejected(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x100\nname = T\nunits = u\n"
+    "start_byte = 7\nbit_length = 16\ntype = U16\n"
+    "scale = 1.0\noffset = 0.0\n";
+  int ret = cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(CFG_ERR_VALUE, ret);
+}
+
 void test_long_line_skipped(void) {
   // Build a config with a line > 256 chars
   char ini[1024];
@@ -298,6 +318,8 @@ int main(void) {
   RUN_TEST(test_empty_input);
   RUN_TEST(test_too_many_fields);
   RUN_TEST(test_invalid_type_rejected);
+  RUN_TEST(test_zero_bit_length_rejected);
+  RUN_TEST(test_start_byte_overflow_rejected);
   RUN_TEST(test_long_line_skipped);
   RUN_TEST(test_hex_can_id);
   RUN_TEST(test_decimal_can_id);

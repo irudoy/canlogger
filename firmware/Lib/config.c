@@ -168,5 +168,12 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
 
   if (!logger_found) return CFG_ERR_MISSING;
 
+  // Validate fields
+  for (int i = 0; i < out->num_fields; i++) {
+    cfg_Field* f = &out->fields[i];
+    if (f->bit_length == 0 || f->bit_length % 8 != 0) return CFG_ERR_VALUE;
+    if (f->start_byte + f->bit_length / 8 > 8) return CFG_ERR_VALUE;
+  }
+
   return CFG_OK;
 }

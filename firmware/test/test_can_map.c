@@ -180,8 +180,21 @@ void test_process_out_of_bounds_ignored(void) {
 
   can_Frame frame = { .id = 0x100, .data = {0}, .dlc = 8 };
   int updated = can_map_process(&fv, &cfg, &frame);
-  TEST_ASSERT_EQUAL(0, updated); // should be skipped
-  TEST_ASSERT_EQUAL_HEX8(0x00, fv.values[0]); // unchanged
+  TEST_ASSERT_EQUAL(0, updated);
+  TEST_ASSERT_EQUAL_HEX8(0x00, fv.values[0]);
+}
+
+void test_process_beyond_dlc_ignored(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x100, .start_byte = 3, .bit_length = 8, .type = 0 // U08 at byte 3
+  };
+  can_map_init(&fv, &cfg);
+
+  // Frame with DLC=2 — only data[0] and data[1] are valid
+  can_Frame frame = { .id = 0x100, .data = {0xAA, 0xBB, 0xCC, 0xDD}, .dlc = 2 };
+  int updated = can_map_process(&fv, &cfg, &frame);
+  TEST_ASSERT_EQUAL(0, updated); // byte 3 beyond DLC=2
 }
 
 // --- reset_updated ---
@@ -209,6 +222,7 @@ int main(void) {
   RUN_TEST(test_two_fields_same_id);
   RUN_TEST(test_two_fields_different_ids);
   RUN_TEST(test_process_out_of_bounds_ignored);
+  RUN_TEST(test_process_beyond_dlc_ignored);
   RUN_TEST(test_build_mlg_fields);
   RUN_TEST(test_reset_updated);
   return UNITY_END();
