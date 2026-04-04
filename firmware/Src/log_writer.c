@@ -2,16 +2,23 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "main.h"
+#include "mlvlg.h"
 
 #define LED1 1
 #define LED2 2
-#define LED_ON 0  // Логический 0 для включения светодиодов
-#define LED_OFF 1  // Логический 1 для выключения светодиодов
+#define LED_ON 0
+#define LED_OFF 1
 #define BLINK_INTERVAL_NORMAL 500
 #define BLINK_INTERVAL_ERROR 100
-#define MAX_FILE_SIZE 4 * 1024 * 1024  // Приватная константа для максимального размера файла
-#define MAX_ERROR_COUNT 5  // Приватная константа для максимального числа неудачных попыток
+#define MAX_FILE_SIZE (4 * 1024 * 1024)
+#define MAX_ERROR_COUNT 5
+#define LOG_INTERVAL_MS 50  // 20 Hz logging rate
+
+// PoC: 2 fixed fields
+#define POC_NUM_FIELDS 2
+#define POC_RECORD_LEN 3  // U08(1) + U16(2)
 
 extern RTC_HandleTypeDef hrtc;
 
@@ -26,20 +33,17 @@ typedef struct {
 
 static FIL log_file_obj;
 static uint32_t bytes_written;
-static char log_file_name[13]; // Формат 8.3
-static uint32_t last_tick_led1 = 0;
+static char log_file_name[13];
 static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
-static FRESULT error_code = FR_OK;
 static uint32_t file_counter = 0;
 static int error_count = 0;
+static uint8_t block_counter = 0;
+static uint32_t last_log_tick = 0;
+static uint32_t tick_counter = 0;
 
-#define FIELDS_SIZE 1
-//mlg_LoggerField_Scalar fields[FIELDS_SIZE] = {
-//    {MLG_U08, "U08Field", "U08", MLG_FLOAT, 1.0f, 0.0f, 2, "Category"},
-//};
-//const char* infoData = "Additional Info Data";
-//uint8_t buffer[MAX_BUFFER_SIZE];
+// Write buffer for serialization
+static uint8_t write_buf[256];
 
 static void get_current_datetime(DateTime* dateTime);
 static void set_led(int led, int state);
@@ -48,6 +52,63 @@ static FRESULT create_new_log_file(void);
 static void set_error_state(FRESULT code);
 static FRESULT handle_error(FRESULT res);
 
+// PoC field definitions
+static const mlg_Field poc_fields[POC_NUM_FIELDS] = {
+  {
+    .type = MLG_U08,
+    .name = "Counter",
+    .units = "count",
+    .display_style = MLG_FLOAT,
+    .scale = 1.0f,
+    .transform = 0.0f,
+    .digits = 0,
+    .category = "Test"
+  },
+  {
+    .type = MLG_U16,
+    .name = "Sine",
+    .units = "raw",
+    .display_style = MLG_FLOAT,
+    .scale = 1.0f,
+    .transform = 0.0f,
+    .digits = 0,
+    .category = "Test"
+  },
+};
+
+static FRESULT write_mlg_file_header(void) {
+  uint32_t data_begin = MLG_HEADER_SIZE + POC_NUM_FIELDS * MLG_FIELD_SIZE;
+
+  mlg_Header header = {
+    .file_format = "MLVLG",
+    .format_version = 2,
+    .timestamp = 0, // no RTC unix time available yet
+    .info_data_start = 0,
+    .data_begin_index = data_begin,
+    .record_length = POC_RECORD_LEN,
+    .num_fields = POC_NUM_FIELDS
+  };
+
+  // Write header
+  int ret = mlg_write_header(write_buf, sizeof(write_buf), &header);
+  if (ret < 0) return FR_INT_ERR;
+
+  UINT bw;
+  FRESULT res = f_write(&log_file_obj, write_buf, ret, &bw);
+  if (res != FR_OK) return res;
+
+  // Write field descriptors
+  for (int i = 0; i < POC_NUM_FIELDS; i++) {
+    ret = mlg_write_field(write_buf, sizeof(write_buf), &poc_fields[i]);
+    if (ret < 0) return FR_INT_ERR;
+
+    res = f_write(&log_file_obj, write_buf, ret, &bw);
+    if (res != FR_OK) return res;
+  }
+
+  return FR_OK;
+}
+
 void lw_init(void) {
   FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
   if (res != FR_OK) {
@@ -55,65 +116,64 @@ void lw_init(void) {
     return;
   }
 
-  set_led(LED1, LED_ON);  // LED1 горит
+  set_led(LED1, LED_ON);
   res = create_new_log_file();
   if (res != FR_OK) {
     set_error_state(res);
   }
+
+  last_log_tick = HAL_GetTick();
 }
 
 FRESULT lw_tick(void) {
   if (error_state) {
-    toggle_led(LED1, &last_tick_led1, BLINK_INTERVAL_ERROR);  // LED1 мигает при ошибке
-    toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_ERROR);  // LED2 мигает при ошибке
+    toggle_led(LED1, &last_tick_led2, BLINK_INTERVAL_ERROR);
+    toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_ERROR);
     return FR_OK;
   }
 
-  toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_NORMAL);  // LED2 мигает в штатном режиме
+  toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_NORMAL);
 
-  ////////////////////////////////////////////////////////
+  // Check log interval
+  uint32_t now = HAL_GetTick();
+  if (now - last_log_tick < LOG_INTERVAL_MS) {
+    return FR_OK;
+  }
+  last_log_tick = now;
 
-//  size_t dataSize = mlg_calculateDataSize(fields, FIELDS_SIZE, 0, 0);
-//  uint8_t* data = (uint8_t*)malloc(dataSize);
-//  if (data == NULL) {
-//    // Failed to allocate memory for data
-//    return FR_INT_ERR;
-//  }
-//
-//  for (size_t i = 0; i < dataSize; i++) {
-//    data[i] = i + 1;
-//  }
-//
-//  mlg_DataBlock dataBlock = {0, 1, HAL_GetTick(), data, 0};
-//
-//  uint8_t dataBlockBuffer[256];
-//  mlg_PackDataBlockArgs dataBlockArgs = {
-//      .dataBlock = &dataBlock,
-//      .scalarFields = fields,
-//      .numScalarFields = FIELDS_SIZE,
-//      .buffer = dataBlockBuffer,
-//      .bufferSize = sizeof(dataBlockBuffer)
-//  };
-//
-//  int result = mlg_packDataBlock(&dataBlockArgs);
-//
-//  if (result == -1) {
-//    // Data block buffer overflow
-//    free(data);
-//    return FR_INT_ERR;
-//  }
-//
-//  uint32_t dataBlockSize = 1 + 1 + 2 + dataSize + 1; // Type + Counter + Timestamp + Data + CRC
+  // Generate PoC test data
+  uint8_t counter_val = (uint8_t)(tick_counter & 0xFF);
+  double angle = (double)tick_counter * 2.0 * 3.14159265358979 / 100.0;
+  uint16_t sine_val = (uint16_t)(500.0 + 500.0 * sin(angle));
 
-  ////////////////////////////////////////////////////////
+  // Pack field data in big-endian
+  uint8_t data[POC_RECORD_LEN];
+  data[0] = counter_val;                   // U08
+  data[1] = (sine_val >> 8) & 0xFF;        // U16 BE high
+  data[2] = sine_val & 0xFF;               // U16 BE low
 
-//  FRESULT res = f_write(&log_file_obj, dataBlockBuffer, dataBlockSize, (void *)&bytes_written);
-  FRESULT res = FR_OK;
+  // Timestamp: microseconds / 10
+  uint16_t timestamp_10us = (uint16_t)((now * 1000) / 10);  // ms → us → 10us
 
+  int ret = mlg_write_data_block(write_buf, sizeof(write_buf),
+                                  block_counter++, timestamp_10us,
+                                  data, POC_RECORD_LEN);
+  if (ret < 0) return FR_INT_ERR;
+
+  UINT bw;
+  FRESULT res = f_write(&log_file_obj, write_buf, ret, &bw);
   if (res != FR_OK) {
     return handle_error(res);
   }
 
+  // Sync periodically (every 100 blocks)
+  if (tick_counter % 100 == 0) {
+    f_sync(&log_file_obj);
+  }
+
+  tick_counter++;
+
+  // File rotation
   if (f_size(&log_file_obj) >= MAX_FILE_SIZE) {
     f_close(&log_file_obj);
     res = create_new_log_file();
@@ -126,61 +186,35 @@ FRESULT lw_tick(void) {
 }
 
 void lw_stop(void) {
+  f_sync(&log_file_obj);
   f_close(&log_file_obj);
   f_mount(0, "", 0);
-  set_led(LED1, LED_OFF);  // LED1 выключен
-  set_led(LED2, LED_ON);   // LED2 горит при остановке
+  set_led(LED1, LED_OFF);
+  set_led(LED2, LED_ON);
 }
 
 static FRESULT create_new_log_file(void) {
   DateTime dateTime;
   get_current_datetime(&dateTime);
-  sprintf(log_file_name, "%02d%02d%02d%02d.MLG", dateTime.day, dateTime.hour, dateTime.minute, file_counter++ % 100);
+  sprintf(log_file_name, "%02d%02d%02d%02d.MLG",
+          dateTime.day, dateTime.hour, dateTime.minute,
+          (int)(file_counter++ % 100));
+
   FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_ALWAYS | FA_WRITE);
   if (res != FR_OK) {
     return handle_error(res);
   }
 
-//  // create header
-//  mlg_Header header = {
-//      .fileFormat = "MLVLG",
-//      .formatVersion = 0x0002,
-//      .timeStamp = 0x5F4D3C2B,  // Example timestamp
-//      .infoDataStart = 0x00000000,
-//      .dataBeginIndex = 0x00000010, // This will be calculated dynamically
-//      .recordLength = 0x0020,
-//      .numLoggerFields = 8 // This will be calculated dynamically
-//  };
-//
-//  memset(buffer, 0, MAX_BUFFER_SIZE);
-//
-//  mlg_PackHeaderArgs headerArgs = {
-//      .header = &header,
-//      .scalarFields = fields,
-//      .numScalarFields = FIELDS_SIZE,
-//      .buffer = buffer,
-//      .bufferSize = MAX_BUFFER_SIZE,
-//      .infoDataStartOffset = sizeof(mlg_Header) + 1 * sizeof(mlg_LoggerField_Scalar) + 1
-//  };
-//
-//  int result = mlg_packHeaderToBuffer(&headerArgs);
-//
-//  if (result != 0) {
-//    // Header buffer overflow
-//    return FR_INT_ERR;
-//  }
-//
-//  size_t infoDataLength = strlen(infoData) + 1; // Include null terminator
-//  if (infoDataLength + header.dataBeginIndex > MAX_BUFFER_SIZE) {
-//    // Info Data buffer overflow
-//    return FR_INT_ERR;
-//  }
-//  memcpy(buffer + header.dataBeginIndex, infoData, infoDataLength);
-//
-//  res = f_write(&log_file_obj, buffer, header.dataBeginIndex + infoDataLength, (void *)&bytes_written);
+  // Write MLG header + field descriptors
+  res = write_mlg_file_header();
   if (res != FR_OK) {
+    f_close(&log_file_obj);
     return handle_error(res);
   }
+
+  // Reset block counter for new file
+  block_counter = 0;
+  tick_counter = 0;
 
   return FR_OK;
 }
@@ -220,7 +254,7 @@ static void toggle_led(int led, uint32_t* last_tick, uint32_t interval) {
 
 static void set_error_state(FRESULT code) {
   error_state = 1;
-  error_code = code;
+  (void)code;
 }
 
 static FRESULT handle_error(FRESULT res) {

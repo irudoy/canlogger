@@ -19,6 +19,7 @@ STM32F407VET6 отладочная плата (STM32_F4VE V2.0):
 - Кварц: 8 MHz HSE
 
 Схема: `docs/reference/STM32F407VET6-STM32_F4VE_V2.0_schematic.pdf`
+Документация платы: https://stm32-base.org/boards/STM32F407VET6-STM32-F4VE-V2.0.html
 
 ### Hat (расширительная плата)
 
