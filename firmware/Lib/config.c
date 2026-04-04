@@ -1,6 +1,5 @@
 #include "config.h"
 #include <string.h>
-#include <stdio.h>
 
 typedef enum {
   SEC_NONE,
@@ -33,13 +32,48 @@ static uint8_t parse_type(const char* val) {
 }
 
 static uint32_t parse_uint32(const char* val) {
-  unsigned long result = 0;
+  uint32_t result = 0;
   if (val[0] == '0' && (val[1] == 'x' || val[1] == 'X')) {
-    sscanf(val, "%lx", &result);
+    val += 2;
+    while (*val) {
+      char c = *val++;
+      uint8_t digit;
+      if (c >= '0' && c <= '9') digit = c - '0';
+      else if (c >= 'a' && c <= 'f') digit = 10 + c - 'a';
+      else if (c >= 'A' && c <= 'F') digit = 10 + c - 'A';
+      else break;
+      result = (result << 4) | digit;
+    }
   } else {
-    sscanf(val, "%lu", &result);
+    while (*val >= '0' && *val <= '9') {
+      result = result * 10 + (*val++ - '0');
+    }
   }
-  return (uint32_t)result;
+  return result;
+}
+
+static float parse_float(const char* s) {
+  float sign = 1.0f;
+  if (*s == '-') { sign = -1.0f; s++; }
+  else if (*s == '+') { s++; }
+
+  float result = 0.0f;
+  while (*s >= '0' && *s <= '9') {
+    result = result * 10.0f + (*s - '0');
+    s++;
+  }
+
+  if (*s == '.') {
+    s++;
+    float frac = 0.1f;
+    while (*s >= '0' && *s <= '9') {
+      result += (*s - '0') * frac;
+      frac *= 0.1f;
+      s++;
+    }
+  }
+
+  return sign * result;
 }
 
 static void copy_str(char* dest, const char* src, size_t max_len) {
@@ -151,13 +185,11 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
         if (t == 0xFF) return CFG_ERR_VALUE;
         f->type = t;
       } else if (strcmp(raw_key, "scale") == 0) {
-        sscanf(val_buf, "%f", &f->scale);
+        f->scale = parse_float(val_buf);
       } else if (strcmp(raw_key, "offset") == 0) {
-        sscanf(val_buf, "%f", &f->offset);
+        f->offset = parse_float(val_buf);
       } else if (strcmp(raw_key, "digits") == 0) {
-        int d = 0;
-        sscanf(val_buf, "%d", &d);
-        f->digits = (int8_t)d;
+        f->digits = (int8_t)parse_uint32(val_buf);
       } else if (strcmp(raw_key, "display_style") == 0) {
         f->display_style = (uint8_t)parse_uint32(val_buf);
       } else if (strcmp(raw_key, "is_big_endian") == 0) {

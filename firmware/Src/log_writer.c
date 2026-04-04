@@ -41,6 +41,7 @@ static uint8_t write_buf[512];
 static char config_buf[CONFIG_BUF_SIZE];
 
 static void get_current_datetime(DateTime* dt);
+static uint32_t datetime_to_unix(const DateTime* dt);
 static void set_led(int led, int state);
 static void toggle_led(int led, uint32_t* last_tick, uint32_t interval);
 static FRESULT create_new_log_file(void);
@@ -50,10 +51,13 @@ static FRESULT handle_error(FRESULT res);
 static FRESULT write_mlg_file_header(void) {
   uint32_t data_begin = MLG_HEADER_SIZE + num_mlg_fields * MLG_FIELD_SIZE;
 
+  DateTime dt;
+  get_current_datetime(&dt);
+
   mlg_Header header = {
     .file_format = "MLVLG",
     .format_version = 2,
-    .timestamp = 0,
+    .timestamp = datetime_to_unix(&dt),
     .info_data_start = 0,
     .data_begin_index = data_begin,
     .record_length = (uint16_t)record_length,
@@ -212,6 +216,20 @@ static FRESULT create_new_log_file(void) {
 
   block_counter = 0;
   return FR_OK;
+}
+
+static uint32_t datetime_to_unix(const DateTime* dt) {
+  // Days from 1970-01-01 to 2000-01-01 = 10957
+  uint32_t year = dt->year + 2000;
+  uint32_t days = (year - 1970) * 365 + ((year - 1969) / 4);
+  static const uint16_t mdays[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+  if (dt->month >= 1 && dt->month <= 12) {
+    days += mdays[dt->month - 1];
+  }
+  // Leap year correction for current year
+  if (dt->month > 2 && (year % 4 == 0)) days++;
+  days += dt->day - 1;
+  return days * 86400 + dt->hour * 3600 + dt->minute * 60 + dt->second;
 }
 
 static void get_current_datetime(DateTime* dt) {

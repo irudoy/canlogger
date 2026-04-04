@@ -99,6 +99,10 @@ int can_drv_init(ring_Buffer* rb, const cfg_Config* cfg) {
 }
 
 int can_drv_start(void) {
+  // Ensure NVIC is enabled (may be lost after HAL_CAN_DeInit/Init in configure_timing)
+  HAL_NVIC_SetPriority(CAN1_RX0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(CAN1_RX0_IRQn);
+
   if (HAL_CAN_Start(&hcan1) != HAL_OK) return -1;
   if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) return -1;
   return 0;

@@ -31,11 +31,11 @@
 
 21 тест (unit + snapshot), 0 failures. 453 записи при 20Hz, валидировано mlg-converter и MegaLogViewer.
 
-### MVP — Базовый рабочий логгер — in progress
+### MVP — Базовый рабочий логгер — done
 
 **Цель:** Записать CAN-данные с cansult на SD в валидный MLVLG-файл, открываемый в MegaLogViewer.
 
-Задачи:
+Результат:
 - [x] Включить CAN-периферию в CubeMX (CAN1 PB8/PB9, 500 kbit/s)
 - [x] Реализовать `can_drv` — CAN RX через прерывания → ring buffer (`Lib/ring_buf`)
 - [x] Реализовать `Lib/config` — INI-парсер конфигурации с SD
@@ -43,10 +43,18 @@
 - [x] Реализовать config-driven запись MLG header + data blocks на SD (в `log_writer`)
 - [x] Интеграция в main loop: config → can_map → mlvlg → sd_write
 - [x] Поведение без конфига: ошибка + LED индикация + K1 shutdown
-- [x] Ручной конфиг для cansult (0x666, 0x667, 0x668) — `test/cansult_config.ini`
-- [x] Тесты: парсер конфига, маппинг, bit extraction, ring buffer (49 тестов)
-- [x] Проверка на устройстве: конфиг читается, 5 полей, 725 записей, валидный MLG
-- [ ] E2E тест: cansult → canlogger → SD → MegaLogViewer (ожидает пайку CAN hat)
+- [x] Ручной конфиг для cansult (11 параметров) — `test/cansult_config.ini`
+- [x] Тесты: парсер конфига, маппинг, bit extraction, ring buffer (58 тестов)
+- [x] E2E тест: cansult → Nissan ECU → CAN → canlogger → SD → MegaLogViewer
+- [x] Проверка в MegaLogViewer: Battery voltage graph 11.4V–15.5V с реальными изменениями
+
+Конфигурируемый CAN bitrate, hardware ID фильтры, unix timestamp в MLG header.
+
+### Следующий этап — отладка и стабильность
+
+- [ ] Debug-обмен данными без извлечения SD (UART? USB CDC? SWD semihosting?)
+- [ ] Debug-дисплей — подключение экрана для отображения статуса и данных в реальном времени
+- [ ] Исследовать и исправить отвал cansult UART↔ECU через время
 
 ### v1.0 — Стабильный продукт
 
@@ -59,10 +67,13 @@
 - [ ] Поддержка extended CAN ID (29-bit) в конфиге и can_map
 - [ ] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
 - [ ] Обработка ошибок SD: retry, ротация файлов, журнал ошибок
+- [ ] Отладочный лог на SD — системные события, ошибки, сэмплы данных по условию
 - [ ] Логирование статистики (принято/потеряно/записано фреймов)
 - [ ] Оптимизация скорости записи (DMA для SDIO, двойная буферизация)
 - [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
+- [ ] GPS модуль — геопозиция + точное реальное время
+- [ ] Полнота реализации MLG — изучить спеку, проверить все ли возможности используются
 
 ### v2.0 — Удобство конфигурации
 

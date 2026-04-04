@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Universal CAN bus data logger. Reads CAN frames, maps them to parameters via config file on SD, writes MLVLG v2 binary logs (compatible with MegaLogViewer). Config-driven — no reflashing needed for different vehicles/protocols.
 
-**Current stage: MVP almost complete.** Config-driven logging works end-to-end (config.ini → fields → SD → MegaLogViewer). Awaiting CAN hat soldering for E2E test with real CAN data.
+**Current stage: MVP complete.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer with real Battery/Coolant/TPS data. Next: debug tooling and cansult stability.
 
 Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
@@ -83,6 +83,8 @@ See `docs/HARDWARE.md` for full pin assignments, SWD wiring, LED states, hat des
 
 - MCU: STM32F407VET6, 168MHz. Board: STM32_F4VE V2.0
 - SD: SDIO 1-bit mode, FatFS
-- CAN1: PB8 (RX), PB9 (TX) — 500 kbit/s
+- CAN1: PB8 (RX), PB9 (TX) — configurable bitrate (default 500 kbit/s)
+- CAN input: modified MCP2515 board (TJA1050 transceiver only, SO→TX, SI→RX)
 - LEDs: PA6 (D2), PA7 (D3), active-low. Button: PE3/K1 (shutdown)
 - E2E test source: `../cansult` (Nissan Consult → CAN, 3 messages @ 20Hz)
+- Known issue: cansult UART↔ECU connection drops after some time

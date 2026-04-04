@@ -65,14 +65,27 @@ ocd-status:
 		-ex "monitor reset run" \
 		-ex "shell sleep 3" \
 		-ex "monitor halt" \
-		-ex "print error_state" \
-		-ex "print lw_shutdown" \
-		-ex "print (char*)log_file_name" \
-		-ex "print file_counter" \
-		-ex "print error_count" \
-		-ex "print block_counter" \
+		-ex "printf \"=== State ===\n\"" \
+		-ex "printf \"init_ok=%d error=%d shutdown=%d\n\", init_ok, error_state, lw_shutdown" \
+		-ex "printf \"file=%s blocks=%d\n\", log_file_name, block_counter" \
+		-ex "printf \"=== Config ===\n\"" \
+		-ex "printf \"interval=%d bitrate=%d fields=%d can_ids=%d\n\", config.log_interval_ms, config.can_bitrate, config.num_fields, config.num_can_ids" \
+		-ex "printf \"=== CAN ===\n\"" \
+		-ex "printf \"rb head=%d tail=%d\n\", can_rx_buf.head, can_rx_buf.tail" \
+		-ex "printf \"ESR=0x%08X RF0R=0x%08X BTR=0x%08X IER=0x%08X\n\", *(uint32_t*)0x40006418, *(uint32_t*)0x4000640C, *(uint32_t*)0x4000641C, *(uint32_t*)0x40006414" \
+		-ex "printf \"NVIC_ISER0=0x%08X\n\", *(uint32_t*)0xE000E100" \
+		-ex "printf \"=== Field Values ===\n\"" \
+		-ex "printf \"updated=%d values: %d %d %d %d %d %d %d\n\", field_values.updated, field_values.values[0], field_values.values[1], field_values.values[2], field_values.values[3], field_values.values[4], field_values.values[5], field_values.values[6]" \
 		-ex "bt" \
 		-ex "monitor resume"
+
+ocd-dump:
+	$(GDB) $(ELF) -batch \
+		-ex "target extended-remote :3333" \
+		-ex "monitor reset run" \
+		-ex "shell sleep 5" \
+		-ex "monitor halt" \
+		-ex "source scripts/dump.gdb"
 
 # --- Debug (ST-LINK GDB server, requires recent ST-Link firmware) ---
 
