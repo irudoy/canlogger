@@ -236,6 +236,41 @@ void test_long_line_skipped(void) {
   TEST_ASSERT_EQUAL_STRING("", cfg.fields[0].name);
 }
 
+// --- CAN bitrate and ID collection ---
+
+void test_default_bitrate(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x100\nname = T\nunits = u\n"
+    "start_byte = 0\nbit_length = 8\ntype = U08\nscale = 1.0\noffset = 0.0\n";
+  cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(500000, cfg.can_bitrate);
+}
+
+void test_custom_bitrate(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\ncan_bitrate = 250000\n"
+    "[field]\ncan_id = 0x100\nname = T\nunits = u\n"
+    "start_byte = 0\nbit_length = 8\ntype = U08\nscale = 1.0\noffset = 0.0\n";
+  cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(250000, cfg.can_bitrate);
+}
+
+void test_unique_can_ids_collected(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x666\nname = A\nunits = u\n"
+    "start_byte = 0\nbit_length = 8\ntype = U08\nscale = 1.0\noffset = 0.0\n"
+    "[field]\ncan_id = 0x667\nname = B\nunits = u\n"
+    "start_byte = 0\nbit_length = 8\ntype = U08\nscale = 1.0\noffset = 0.0\n"
+    "[field]\ncan_id = 0x666\nname = C\nunits = u\n"
+    "start_byte = 1\nbit_length = 8\ntype = U08\nscale = 1.0\noffset = 0.0\n";
+  cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(2, cfg.num_can_ids); // 0x666 and 0x667
+  TEST_ASSERT_EQUAL_HEX32(0x666, cfg.can_ids[0]);
+  TEST_ASSERT_EQUAL_HEX32(0x667, cfg.can_ids[1]);
+}
+
 // --- Hex parsing ---
 
 void test_hex_can_id(void) {
@@ -317,6 +352,9 @@ int main(void) {
   RUN_TEST(test_no_logger_section);
   RUN_TEST(test_empty_input);
   RUN_TEST(test_too_many_fields);
+  RUN_TEST(test_default_bitrate);
+  RUN_TEST(test_custom_bitrate);
+  RUN_TEST(test_unique_can_ids_collected);
   RUN_TEST(test_invalid_type_rejected);
   RUN_TEST(test_zero_bit_length_rejected);
   RUN_TEST(test_start_byte_overflow_rejected);

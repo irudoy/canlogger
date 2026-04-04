@@ -131,6 +131,8 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
     if (section == SEC_LOGGER) {
       if (strcmp(raw_key, "interval_ms") == 0) {
         out->log_interval_ms = parse_uint32(val_buf);
+      } else if (strcmp(raw_key, "can_bitrate") == 0) {
+        out->can_bitrate = parse_uint32(val_buf);
       }
     } else if (section == SEC_FIELD && field_idx >= 0) {
       cfg_Field* f = &out->fields[field_idx];
@@ -167,6 +169,21 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
   }
 
   if (!logger_found) return CFG_ERR_MISSING;
+
+  // Default bitrate
+  if (out->can_bitrate == 0) out->can_bitrate = 500000;
+
+  // Collect unique CAN IDs from fields
+  out->num_can_ids = 0;
+  for (int i = 0; i < out->num_fields; i++) {
+    int found = 0;
+    for (int j = 0; j < out->num_can_ids; j++) {
+      if (out->can_ids[j] == out->fields[i].can_id) { found = 1; break; }
+    }
+    if (!found && out->num_can_ids < CFG_MAX_CAN_IDS) {
+      out->can_ids[out->num_can_ids++] = out->fields[i].can_id;
+    }
+  }
 
   // Validate fields
   for (int i = 0; i < out->num_fields; i++) {

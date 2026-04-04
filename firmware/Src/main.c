@@ -121,7 +121,7 @@ int main(void)
 
   if (init_ok) {
     // Start CAN reception
-    can_drv_init(&can_rx_buf);
+    can_drv_init(&can_rx_buf, &config);
     can_drv_start();
   }
   /* USER CODE END 2 */

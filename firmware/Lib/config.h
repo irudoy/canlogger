@@ -24,10 +24,16 @@ typedef struct {
   char     category[CFG_CAT_SIZE];
 } cfg_Field;
 
+#define CFG_MAX_CAN_IDS 32
+
 typedef struct {
   uint32_t  log_interval_ms;
+  uint32_t  can_bitrate;             // 125000, 250000, 500000, 1000000 (default 500000)
   cfg_Field fields[CFG_MAX_FIELDS];
   uint16_t  num_fields;
+  // Derived: unique CAN IDs from fields (for hardware filter setup)
+  uint32_t  can_ids[CFG_MAX_CAN_IDS];
+  uint16_t  num_can_ids;
 } cfg_Config;
 
 // Error codes
