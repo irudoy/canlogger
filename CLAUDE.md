@@ -26,7 +26,7 @@ firmware/
 │   ├── main.c    # Init, main loop, glue
 │   ├── can_drv.c # CAN HAL → ring_buf (ISR callback)
 │   ├── log_writer.c # SD: read config, write MLG, LED, error handling
-│   ├── debug_out.c # USB CDC buffered printf, periodic debug output
+│   ├── debug_out.c # USB CDC CLI (help/status/stream/config/ls/get), echo, buffered printf
 │   ├── usbd_*.c  # USB Device CDC (CubeMX generated)
 │   └── usb_device.c # USB Device init (CubeMX generated)
 ├── Inc/          # Headers for Src/

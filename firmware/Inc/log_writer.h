@@ -21,4 +21,16 @@ void lw_update_leds(void);
 // Check error state.
 int lw_is_error(void);
 
+// Debug status info.
+typedef struct {
+  const char* file_name;   // current log file name
+  uint32_t    file_size;   // current log file size
+  uint32_t    file_count;  // number of log files created
+  int         error_count; // SD error count
+  int         error_state; // 1 = fatal error
+  uint8_t     block_count; // data blocks written in current file
+} lw_Status;
+
+void lw_get_status(lw_Status* out);
+
 #endif // LOG_WRITER_H

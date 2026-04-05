@@ -198,6 +198,15 @@ int lw_is_error(void) {
   return error_state;
 }
 
+void lw_get_status(lw_Status* out) {
+  out->file_name   = log_file_name;
+  out->file_size   = error_state ? 0 : f_size(&log_file_obj);
+  out->file_count  = file_counter;
+  out->error_count = error_count;
+  out->error_state = error_state;
+  out->block_count = block_counter;
+}
+
 static FRESULT create_new_log_file(void) {
   DateTime dt;
   get_current_datetime(&dt);

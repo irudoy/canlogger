@@ -161,6 +161,7 @@ int main(void)
     }
 
     debug_out_tick(can_frames_processed, config.num_fields, init_ok);
+    debug_cmd_poll(&config, init_ok, &can_rx_buf);
 
     // Update LED indication
     lw_update_leds();
