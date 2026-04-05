@@ -10,6 +10,7 @@ CONFIG       := Debug
 PROJECT_DIR  := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 ELF          := $(PROJECT_DIR)/Debug/$(PROJECT).elf
 WS           := /tmp/canlogger-ws
+STLINK_SN    := 2C2404147116303030303032
 
 # --- Build ---
 
@@ -40,18 +41,18 @@ test:
 # --- Flash & Reset ---
 
 flash: build
-	$(PROGRAMMER) -c port=SWD -w $(ELF) -v -rst
+	$(PROGRAMMER) -c port=SWD sn=$(STLINK_SN) -w $(ELF) -v -rst
 
 erase:
-	$(PROGRAMMER) -c port=SWD -e all
+	$(PROGRAMMER) -c port=SWD sn=$(STLINK_SN) -e all
 
 reset:
-	$(PROGRAMMER) -c port=SWD -rst
+	$(PROGRAMMER) -c port=SWD sn=$(STLINK_SN) -rst
 
 # --- Debug (OpenOCD) ---
 
 ocd-server:
-	openocd -f interface/stlink.cfg -f target/stm32f4x.cfg
+	openocd -f interface/stlink.cfg -c "hla_serial $(STLINK_SN)" -f target/stm32f4x.cfg
 
 ocd-debug: build
 	$(GDB) $(ELF) \

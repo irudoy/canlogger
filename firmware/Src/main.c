@@ -124,7 +124,12 @@ int main(void)
   int init_ok = (lw_init(&config, &field_values) == 0);
 
   if (init_ok) {
-    // Start CAN reception
+    can_drv_init(&can_rx_buf, &config);
+    can_drv_start();
+  } else {
+    // No config — CAN sniffer mode: accept-all at default 500k
+    config.can_bitrate = 500000;
+    config.num_can_ids = 0;
     can_drv_init(&can_rx_buf, &config);
     can_drv_start();
   }
@@ -135,22 +140,22 @@ int main(void)
   while (1)
   {
     if (lw_shutdown == 1) {
-      if (init_ok) {
-        can_drv_stop();
-        lw_stop();
-      }
+      can_drv_stop();
+      if (init_ok) lw_stop();
       break;
     }
 
-    if (init_ok) {
-      // Drain CAN ring buffer → update shadow values
+    // Drain CAN ring buffer
+    {
       can_Frame frame;
       while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
-        can_map_process(&field_values, &config, &frame);
+        if (init_ok) can_map_process(&field_values, &config, &frame);
         can_frames_processed++;
-        if (frame.id == 0x640) debug_out_set_can640(frame.data, frame.dlc);
+        debug_out_set_can(frame.id, frame.data, frame.dlc);
       }
+    }
 
+    if (init_ok) {
       // Write data block at configured interval
       lw_tick(&field_values, config.log_interval_ms);
     }
