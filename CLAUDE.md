@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Universal CAN bus data logger. Reads CAN frames, maps them to parameters via config file on SD, writes MLVLG v2 binary logs (compatible with MegaLogViewer). Config-driven — no reflashing needed for different vehicles/protocols.
 
-**Current stage: MVP complete.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer with real Battery/Coolant/TPS data. Next: debug tooling and cansult stability.
+**Current stage: MVP + debug output.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer with real Battery/Coolant/TPS data. USB CDC debug output working (printf over USB Virtual COM Port).
 
 Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
@@ -24,7 +24,10 @@ firmware/
 ├── Src/          # HAL wrappers
 │   ├── main.c    # Init, main loop, glue
 │   ├── can_drv.c # CAN HAL → ring_buf (ISR callback)
-│   └── log_writer.c # SD: read config, write MLG, LED, error handling
+│   ├── log_writer.c # SD: read config, write MLG, LED, error handling
+│   ├── debug_out.c # USB CDC buffered printf, periodic debug output
+│   ├── usbd_*.c  # USB Device CDC (CubeMX generated)
+│   └── usb_device.c # USB Device init (CubeMX generated)
 ├── Inc/          # Headers for Src/
 ├── test/         # Host unit tests (Unity framework)
 │   ├── unity/
@@ -85,6 +88,7 @@ See `docs/HARDWARE.md` for full pin assignments, SWD wiring, LED states, hat des
 - SD: SDIO 1-bit mode, FatFS
 - CAN1: PB8 (RX), PB9 (TX) — configurable bitrate (default 500 kbit/s)
 - CAN input: modified MCP2515 board (TJA1050 transceiver only, SO→TX, SI→RX)
+- USB: PA11/PA12 — USB CDC debug output (Virtual COM Port, `/dev/cu.usbmodemXXXX`)
 - LEDs: PA6 (D2), PA7 (D3), active-low. Button: PE3/K1 (shutdown)
 - E2E test source: `../cansult` (Nissan Consult → CAN, 3 messages @ 20Hz)
 - Known issue: cansult UART↔ECU connection drops after some time

@@ -17,7 +17,8 @@
 | LED1 (D2) | PA6 | Индикация (active-low) | Настроено |
 | LED2 (D3) | PA7 | Индикация (active-low) | Настроено |
 | K1 | PE3 | Кнопка shutdown (EXTI rising) | Настроено |
-| CAN1 | PB8 (RX), PB9 (TX) | CAN-шина 500 kbit/s | Планируется |
+| CAN1 | PB8 (RX), PB9 (TX) | CAN-шина 500 kbit/s | Настроено |
+| USB_OTG_FS | PA11 (DM), PA12 (DP) | USB CDC debug output | Настроено |
 | SWD | PA13 (SWDIO), PA14 (SWCLK) | Отладка | Настроено |
 
 ### LED индикация
@@ -137,6 +138,16 @@ Pin 19 = NC         Pin 20 = GND
 - **Суперконденсатор** на 5V для поддержания питания при shutdown
 
 CAN bus: 500 kbit/s, терминация 120 Ом на каждом конце шины.
+
+## USB CDC (debug output)
+
+Micro-USB разъём на плате → USB CDC Virtual COM Port. На macOS появляется как `/dev/cu.usbmodemXXXX`.
+
+- USB_OTG_FS: Device Only, Full Speed 12 Mbit/s
+- VBUS sensing: отключен (device-only, без ID pin)
+- IRQ приоритет: 7 (ниже CAN=5)
+- Product string: "CANLogger Debug Port"
+- Буферизованный printf через `__io_putchar` → `CDC_Transmit_FS`
 
 ## E2E тестовый стенд
 

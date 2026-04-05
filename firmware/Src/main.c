@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "fatfs.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -27,6 +28,7 @@
 #include "can_drv.h"
 #include "ring_buf.h"
 #include "can_map.h"
+#include "debug_out.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,6 +58,7 @@ volatile uint8_t lw_shutdown = 0;
 static ring_Buffer can_rx_buf;
 static cfg_Config config;
 static can_FieldValues field_values;
+static uint32_t can_frames_processed = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,6 +113,7 @@ int main(void)
   MX_SDIO_SD_Init();
   MX_FATFS_Init();
   MX_RTC_Init();
+  MX_USB_DEVICE_Init();
 
   /* Initialize interrupts */
   MX_NVIC_Init();
@@ -143,11 +147,14 @@ int main(void)
       can_Frame frame;
       while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
         can_map_process(&field_values, &config, &frame);
+        can_frames_processed++;
       }
 
       // Write data block at configured interval
       lw_tick(&field_values, config.log_interval_ms);
     }
+
+    debug_out_tick(can_frames_processed, config.num_fields, init_ok);
 
     // Update LED indication
     lw_update_leds();
