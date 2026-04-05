@@ -19,8 +19,8 @@ Debug USB CDC output: `docs/DEBUG.md`
 firmware/
 ├── Lib/          # Pure business logic (no HAL), host-testable
 │   ├── mlvlg.*   # MLVLG v2 encoder (done, 17 unit + 4 snapshot tests)
-│   ├── config.*  # INI config parser (done, 11 tests)
-│   ├── can_map.* # CAN → field values mapper (done, 10 tests)
+│   ├── config.*  # INI config parser + LUT (done, 22 tests)
+│   ├── can_map.* # CAN → field values mapper + LUT interpolation (done, 17 tests)
 │   └── ring_buf.*# SPSC ring buffer for CAN frames (done, 7 tests)
 ├── Src/          # HAL wrappers
 │   ├── main.c    # Init, main loop, glue
@@ -48,7 +48,7 @@ docs/
 ```bash
 make build        # RTC time gen + CubeIDE headless build → Debug/canlogger.elf
 make clean        # Clean rebuild
-make test         # Run host unit tests (Unity), 49 tests
+make test         # Run host unit tests (Unity), 67 tests
 make flash        # Build + flash via ST-Link SWD
 make erase        # Full chip erase
 make reset        # Hardware reset

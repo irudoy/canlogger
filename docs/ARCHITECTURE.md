@@ -283,11 +283,63 @@ category = Engine
 | `digits` | нет | 0 | Кол-во знаков после запятой |
 | `display_style` | нет | 0 | Стиль отображения (0=Float) |
 | `category` | нет | "" | Категория для группировки в MLV |
+| `lut` | нет | — | Lookup table для нелинейной конверсии (см. ниже) |
 
 - Порядок секций `[field]` определяет порядок полей в MLG
 - Несколько полей могут ссылаться на один `can_id`
 - Уникальные CAN ID автоматически собираются для настройки hardware фильтров
 - Валидация: `bit_length` кратен 8, `start_byte + bit_length/8 <= 8`
+
+### Lookup Table (LUT)
+
+Для нелинейных сенсоров (NTC, нелинейные датчики давления) можно задать кусочно-линейную таблицу преобразования:
+
+```ini
+lut = input1:output1, input2:output2, ...
+```
+
+- `input` — сырое значение из CAN (uint16, например мВ)
+- `output` — значение в единицах отображения (int16, например °C или kPa)
+- Минимум 2 точки, максимум 16
+- Точки должны быть отсортированы по возрастанию input
+- Линейная интерполяция между точками, clamp за пределами
+- При наличии LUT, `scale`/`offset` используются для хранения в MLG (stored = display / scale - offset)
+
+Пример — NTC термистор (Bosch 0261230042, pull-up 2.2k):
+
+```ini
+[field]
+can_id = 0x640
+name = IAT
+units = C
+start_byte = 0
+bit_length = 16
+type = S16
+scale = 0.1
+offset = 0.0
+is_big_endian = 1
+digits = 0
+category = SwitchBoard
+lut = 192:120, 325:100, 428:90, 570:80, 760:70, 1014:60, 1346:50, 1765:40, 2259:30, 2807:20, 3353:10, 3848:0, 4543:-20, 4860:-40
+```
+
+Пример — линейный MAP (2 точки из даташита):
+
+```ini
+[field]
+can_id = 0x640
+name = MAP
+units = kPa
+start_byte = 2
+bit_length = 16
+type = U16
+scale = 1.0
+offset = 0.0
+is_big_endian = 1
+digits = 0
+category = SwitchBoard
+lut = 400:20, 4650:250
+```
 
 ## Жизненный цикл (main.c)
 
