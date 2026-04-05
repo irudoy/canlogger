@@ -35,6 +35,46 @@ static int extract_value(const uint8_t* can_data, uint8_t dlc,
   return 0;
 }
 
+// Linear interpolation on LUT. Returns display-unit value (e.g. °C, kPa).
+static float lut_interpolate(const cfg_LutPoint* lut, uint8_t count, uint16_t input) {
+  if (input <= lut[0].input) return (float)lut[0].output;
+  if (input >= lut[count - 1].input) return (float)lut[count - 1].output;
+
+  for (int i = 0; i < count - 1; i++) {
+    if (input >= lut[i].input && input <= lut[i + 1].input) {
+      float frac = (float)(input - lut[i].input) / (float)(lut[i + 1].input - lut[i].input);
+      return (float)lut[i].output + frac * (float)(lut[i + 1].output - lut[i].output);
+    }
+  }
+  return (float)lut[count - 1].output;
+}
+
+// Write a value into the shadow buffer as big-endian for the given MLG type.
+static void write_value(uint8_t* dest, uint8_t type, float display_val, float scale, float offset) {
+  // Inverse of MLG display formula: rawValue = displayValue / scale - offset
+  float raw = display_val / scale - offset;
+  int32_t ival = (int32_t)(raw >= 0 ? raw + 0.5f : raw - 0.5f); // round
+
+  switch (type) {
+    case 0: // U08
+      dest[0] = (uint8_t)ival;
+      break;
+    case 1: // S08
+      dest[0] = (uint8_t)(int8_t)ival;
+      break;
+    case 2: // U16
+      dest[0] = (uint8_t)(ival >> 8);
+      dest[1] = (uint8_t)ival;
+      break;
+    case 3: // S16
+      dest[0] = (uint8_t)(ival >> 8);
+      dest[1] = (uint8_t)ival;
+      break;
+    default:
+      break;
+  }
+}
+
 int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame* frame) {
   int updated = 0;
   size_t offset = 0;
@@ -46,6 +86,14 @@ int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame*
       if (extract_value(frame->data, frame->dlc, cfg->fields[i].start_byte,
                         cfg->fields[i].bit_length, cfg->fields[i].is_big_endian,
                         fv->values + offset) == 0) {
+        // Apply LUT if present
+        if (cfg->fields[i].lut_count >= 2) {
+          // Read extracted big-endian value as uint16
+          uint16_t raw_input = (fv->values[offset] << 8) | fv->values[offset + 1];
+          float display_val = lut_interpolate(cfg->fields[i].lut, cfg->fields[i].lut_count, raw_input);
+          write_value(fv->values + offset, cfg->fields[i].type,
+                      display_val, cfg->fields[i].scale, cfg->fields[i].offset);
+        }
         updated++;
       }
     }

@@ -148,6 +148,7 @@ int main(void)
       while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
         can_map_process(&field_values, &config, &frame);
         can_frames_processed++;
+        if (frame.id == 0x640) debug_out_set_can640(frame.data, frame.dlc);
       }
 
       // Write data block at configured interval

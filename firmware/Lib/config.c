@@ -76,6 +76,39 @@ static float parse_float(const char* s) {
   return sign * result;
 }
 
+static int parse_lut(const char* val, cfg_LutPoint* lut, uint8_t* count) {
+  *count = 0;
+  const char* p = val;
+  while (*p && *count < CFG_LUT_MAX) {
+    p = skip_spaces(p);
+    if (!*p) break;
+    // Parse input (uint16)
+    uint16_t input = 0;
+    while (*p >= '0' && *p <= '9') {
+      input = input * 10 + (*p - '0');
+      p++;
+    }
+    if (*p != ':') return -1;
+    p++;
+    // Parse output (int16, may be negative)
+    int16_t sign = 1;
+    if (*p == '-') { sign = -1; p++; }
+    int16_t output = 0;
+    while (*p >= '0' && *p <= '9') {
+      output = output * 10 + (*p - '0');
+      p++;
+    }
+    output *= sign;
+    lut[*count].input = input;
+    lut[*count].output = output;
+    (*count)++;
+    // Skip comma and spaces
+    p = skip_spaces(p);
+    if (*p == ',') p++;
+  }
+  return (*count >= 2) ? 0 : -1; // need at least 2 points
+}
+
 static void copy_str(char* dest, const char* src, size_t max_len) {
   strncpy(dest, src, max_len - 1);
   dest[max_len - 1] = '\0';
@@ -196,6 +229,8 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
         f->is_big_endian = (uint8_t)parse_uint32(val_buf);
       } else if (strcmp(raw_key, "category") == 0) {
         copy_str(f->category, val_buf, CFG_CAT_SIZE);
+      } else if (strcmp(raw_key, "lut") == 0) {
+        if (parse_lut(val_buf, f->lut, &f->lut_count) != 0) return CFG_ERR_VALUE;
       }
     }
   }

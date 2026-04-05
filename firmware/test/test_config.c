@@ -295,6 +295,69 @@ void test_decimal_can_id(void) {
   TEST_ASSERT_EQUAL_HEX32(0x667, cfg.fields[0].can_id);
 }
 
+// --- LUT parsing ---
+
+void test_parse_lut_basic(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x640\nname = IAT\nunits = C\n"
+    "start_byte = 0\nbit_length = 16\ntype = S16\n"
+    "scale = 0.1\noffset = 0.0\n"
+    "lut = 192:120, 570:80, 2807:20, 4860:-40\n";
+
+  int ret = cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(CFG_OK, ret);
+  TEST_ASSERT_EQUAL(4, cfg.fields[0].lut_count);
+  TEST_ASSERT_EQUAL(192, cfg.fields[0].lut[0].input);
+  TEST_ASSERT_EQUAL(120, cfg.fields[0].lut[0].output);
+  TEST_ASSERT_EQUAL(570, cfg.fields[0].lut[1].input);
+  TEST_ASSERT_EQUAL(80, cfg.fields[0].lut[1].output);
+  TEST_ASSERT_EQUAL(2807, cfg.fields[0].lut[2].input);
+  TEST_ASSERT_EQUAL(20, cfg.fields[0].lut[2].output);
+  TEST_ASSERT_EQUAL(4860, cfg.fields[0].lut[3].input);
+  TEST_ASSERT_EQUAL(-40, cfg.fields[0].lut[3].output);
+}
+
+void test_parse_lut_two_points(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x640\nname = MAP\nunits = kPa\n"
+    "start_byte = 2\nbit_length = 16\ntype = U16\n"
+    "scale = 0.1\noffset = 0.0\n"
+    "lut = 400:20, 4650:250\n";
+
+  int ret = cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(CFG_OK, ret);
+  TEST_ASSERT_EQUAL(2, cfg.fields[0].lut_count);
+  TEST_ASSERT_EQUAL(400, cfg.fields[0].lut[0].input);
+  TEST_ASSERT_EQUAL(20, cfg.fields[0].lut[0].output);
+  TEST_ASSERT_EQUAL(4650, cfg.fields[0].lut[1].input);
+  TEST_ASSERT_EQUAL(250, cfg.fields[0].lut[1].output);
+}
+
+void test_parse_lut_single_point_rejected(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x640\nname = T\nunits = u\n"
+    "start_byte = 0\nbit_length = 16\ntype = U16\n"
+    "scale = 1.0\noffset = 0.0\n"
+    "lut = 100:50\n";
+
+  int ret = cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(CFG_ERR_VALUE, ret);
+}
+
+void test_no_lut_by_default(void) {
+  const char* ini =
+    "[logger]\ninterval_ms = 10\n"
+    "[field]\ncan_id = 0x100\nname = T\nunits = u\n"
+    "start_byte = 0\nbit_length = 8\ntype = U08\n"
+    "scale = 1.0\noffset = 0.0\n";
+
+  cfg_parse(ini, strlen(ini), &cfg);
+  TEST_ASSERT_EQUAL(0, cfg.fields[0].lut_count);
+}
+
 // --- Cansult config ---
 
 void test_parse_cansult_config(void) {
@@ -308,7 +371,7 @@ void test_parse_cansult_config(void) {
   int ret = cfg_parse(buf, len, &cfg);
   TEST_ASSERT_EQUAL(CFG_OK, ret);
   TEST_ASSERT_EQUAL(50, cfg.log_interval_ms);
-  TEST_ASSERT_EQUAL(11, cfg.num_fields);
+  TEST_ASSERT_EQUAL(13, cfg.num_fields);
 
   // [0] State: 0x665
   TEST_ASSERT_EQUAL_HEX32(0x665, cfg.fields[0].can_id);
@@ -358,6 +421,10 @@ int main(void) {
   RUN_TEST(test_long_line_skipped);
   RUN_TEST(test_hex_can_id);
   RUN_TEST(test_decimal_can_id);
+  RUN_TEST(test_parse_lut_basic);
+  RUN_TEST(test_parse_lut_two_points);
+  RUN_TEST(test_parse_lut_single_point_rejected);
+  RUN_TEST(test_no_lut_by_default);
   RUN_TEST(test_parse_cansult_config);
   return UNITY_END();
 }

@@ -8,6 +8,12 @@
 #define CFG_NAME_SIZE  34
 #define CFG_UNITS_SIZE 10
 #define CFG_CAT_SIZE   34
+#define CFG_LUT_MAX    16
+
+typedef struct {
+  uint16_t input;
+  int16_t  output;
+} cfg_LutPoint;
 
 typedef struct {
   uint32_t can_id;
@@ -22,6 +28,8 @@ typedef struct {
   char     name[CFG_NAME_SIZE];
   char     units[CFG_UNITS_SIZE];
   char     category[CFG_CAT_SIZE];
+  cfg_LutPoint lut[CFG_LUT_MAX];
+  uint8_t  lut_count;
 } cfg_Field;
 
 #define CFG_MAX_CAN_IDS 32

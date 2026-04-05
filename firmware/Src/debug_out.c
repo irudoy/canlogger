@@ -29,11 +29,28 @@ int __io_putchar(int ch) {
   return ch;
 }
 
+static uint8_t last_can640[8];
+static uint8_t can640_valid = 0;
+
+void debug_out_set_can640(const uint8_t* data, uint8_t dlc) {
+  uint8_t len = dlc < 8 ? dlc : 8;
+  for (uint8_t i = 0; i < len; i++) last_can640[i] = data[i];
+  can640_valid = 1;
+}
+
 void debug_out_tick(uint32_t frames_processed, uint16_t num_fields, int init_ok) {
   uint32_t now = HAL_GetTick();
   if (now - last_tick >= 1000) {
     printf("[%lu] frames=%lu fields=%u init=%d\r\n",
            now / 1000, frames_processed, num_fields, init_ok);
+    if (can640_valid) {
+      uint16_t a1 = (last_can640[0] << 8) | last_can640[1]; // BE
+      uint16_t a2 = (last_can640[2] << 8) | last_can640[3];
+      printf("  0x640: %02X %02X %02X %02X %02X %02X %02X %02X  A1=%umV A2=%umV\r\n",
+             last_can640[0], last_can640[1], last_can640[2], last_can640[3],
+             last_can640[4], last_can640[5], last_can640[6], last_can640[7],
+             a1, a2);
+    }
     last_tick = now;
   }
 }

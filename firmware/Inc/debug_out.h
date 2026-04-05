@@ -6,4 +6,7 @@
 // Call from main loop. Prints periodic status over USB CDC.
 void debug_out_tick(uint32_t frames_processed, uint16_t num_fields, int init_ok);
 
+// Capture raw CAN frame 0x640 for debug display.
+void debug_out_set_can640(const uint8_t* data, uint8_t dlc);
+
 #endif

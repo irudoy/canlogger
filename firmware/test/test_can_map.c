@@ -197,6 +197,108 @@ void test_process_beyond_dlc_ignored(void) {
   TEST_ASSERT_EQUAL(0, updated); // byte 3 beyond DLC=2
 }
 
+// --- LUT interpolation ---
+
+void test_lut_exact_point(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x640, .start_byte = 0, .bit_length = 16,
+    .type = 3, // S16
+    .scale = 0.1f, .offset = 0.0f,
+    .lut_count = 2,
+    .lut = { {400, 20}, {4650, 250} }
+  };
+  can_map_init(&fv, &cfg);
+
+  // Send 400 mV (LE: 0x90, 0x01)
+  can_Frame frame = { .id = 0x640, .data = {0x90, 0x01}, .dlc = 2 };
+  can_map_process(&fv, &cfg, &frame);
+
+  // LUT: 400 → 20 kPa, stored = 20/0.1 = 200 = 0x00C8 BE
+  TEST_ASSERT_EQUAL_HEX8(0x00, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xC8, fv.values[1]);
+}
+
+void test_lut_interpolation_midpoint(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x640, .start_byte = 0, .bit_length = 16,
+    .type = 3, // S16
+    .scale = 0.1f, .offset = 0.0f,
+    .lut_count = 2,
+    .lut = { {400, 20}, {4650, 250} }
+  };
+  can_map_init(&fv, &cfg);
+
+  // Send 2525 mV (midpoint) → 135 kPa, stored = 1350 = 0x0546
+  // 2525 LE = 0xDD, 0x09
+  can_Frame frame = { .id = 0x640, .data = {0xDD, 0x09}, .dlc = 2 };
+  can_map_process(&fv, &cfg, &frame);
+
+  int16_t stored = (int16_t)((fv.values[0] << 8) | fv.values[1]);
+  float display = stored * 0.1f;
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, 135.0f, display);
+}
+
+void test_lut_clamp_below(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x640, .start_byte = 0, .bit_length = 16,
+    .type = 3, .scale = 0.1f, .offset = 0.0f,
+    .lut_count = 2,
+    .lut = { {400, 20}, {4650, 250} }
+  };
+  can_map_init(&fv, &cfg);
+
+  // Send 100 mV (below LUT range) → clamp to 20 kPa
+  can_Frame frame = { .id = 0x640, .data = {0x64, 0x00}, .dlc = 2 };
+  can_map_process(&fv, &cfg, &frame);
+
+  int16_t stored = (int16_t)((fv.values[0] << 8) | fv.values[1]);
+  float display = stored * 0.1f;
+  TEST_ASSERT_FLOAT_WITHIN(0.1f, 20.0f, display);
+}
+
+void test_lut_ntc_negative_output(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x640, .start_byte = 0, .bit_length = 16,
+    .type = 3, // S16
+    .scale = 0.1f, .offset = 0.0f,
+    .lut_count = 3,
+    .lut = { {2807, 20}, {3848, 0}, {4860, -40} }
+  };
+  can_map_init(&fv, &cfg);
+
+  // Send 3848 mV (= 0°C), stored = 0/0.1 = 0
+  // 3848 LE = 0x08, 0x0F
+  can_Frame frame = { .id = 0x640, .data = {0x08, 0x0F}, .dlc = 2 };
+  can_map_process(&fv, &cfg, &frame);
+
+  int16_t stored = (int16_t)((fv.values[0] << 8) | fv.values[1]);
+  TEST_ASSERT_EQUAL(0, stored); // 0°C
+}
+
+void test_lut_no_lut_passthrough(void) {
+  // Without LUT, raw value should pass through unchanged
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){
+    .can_id = 0x640, .start_byte = 0, .bit_length = 16,
+    .type = 2, // U16
+    .is_big_endian = 0,
+    .lut_count = 0
+  };
+  can_map_init(&fv, &cfg);
+
+  // Send 0x1234 LE
+  can_Frame frame = { .id = 0x640, .data = {0x34, 0x12}, .dlc = 2 };
+  can_map_process(&fv, &cfg, &frame);
+
+  // Raw BE passthrough
+  TEST_ASSERT_EQUAL_HEX8(0x12, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x34, fv.values[1]);
+}
+
 // --- reset_updated ---
 
 void test_reset_updated(void) {
@@ -224,6 +326,11 @@ int main(void) {
   RUN_TEST(test_process_out_of_bounds_ignored);
   RUN_TEST(test_process_beyond_dlc_ignored);
   RUN_TEST(test_build_mlg_fields);
+  RUN_TEST(test_lut_exact_point);
+  RUN_TEST(test_lut_interpolation_midpoint);
+  RUN_TEST(test_lut_clamp_below);
+  RUN_TEST(test_lut_ntc_negative_output);
+  RUN_TEST(test_lut_no_lut_passthrough);
   RUN_TEST(test_reset_updated);
   return UNITY_END();
 }

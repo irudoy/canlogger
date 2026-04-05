@@ -11,6 +11,7 @@ Universal CAN bus data logger. Reads CAN frames, maps them to parameters via con
 Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
 Hardware and wiring: `docs/HARDWARE.md`
+Debug USB CDC output: `docs/DEBUG.md`
 
 ## Repository Structure
 
