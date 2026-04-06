@@ -166,6 +166,9 @@ static void cmd_status(const ring_Buffer* rb) {
   if (lws.error_count > 0) {
     printf(" last=FR_%d@%s", (int)lws.last_error, lws.last_error_at);
   }
+  if (lws.recovery_count > 0) {
+    printf(" rec=%lu", lws.recovery_count);
+  }
   printf("\r\n");
 
   // Ring buffer

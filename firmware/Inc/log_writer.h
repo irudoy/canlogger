@@ -30,6 +30,7 @@ typedef struct {
   int         error_state; // 1 = fatal error
   FRESULT     last_error;  // last FatFS error code
   const char* last_error_at; // where last error occurred (e.g. "mount", "write")
+  uint32_t    recovery_count; // successful write retries (GC stall recoveries)
   uint8_t     block_count; // data blocks written in current file
 } lw_Status;
 

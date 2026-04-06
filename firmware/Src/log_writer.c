@@ -29,6 +29,7 @@ static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
 static uint32_t file_counter = 0;
 static int error_count = 0;
+static uint32_t recovery_count = 0;
 static FRESULT last_error = FR_OK;
 static const char* last_error_at = "";
 static uint8_t block_counter = 0;
@@ -54,6 +55,7 @@ static void toggle_led(int led, uint32_t* last_tick, uint32_t interval);
 static FRESULT create_new_log_file(void);
 static void set_error_state(FRESULT res, const char* at);
 static FRESULT flush_io_buf(void);
+static FRESULT recover_file(void);
 static FRESULT handle_error(FRESULT res, const char* at);
 
 static FRESULT write_mlg_file_header(void) {
@@ -180,10 +182,11 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
     }
   }
 
-  // File rotation
-  if (f_size(&log_file_obj) + io_pos >= MAX_FILE_SIZE) {
+  // File rotation (f_tell for actual position, f_size is MAX_FILE_SIZE after f_expand)
+  if (f_tell(&log_file_obj) + io_pos >= MAX_FILE_SIZE) {
     FRESULT res = flush_io_buf();
     if (res != FR_OK) return res;
+    f_truncate(&log_file_obj);
     f_close(&log_file_obj);
     res = create_new_log_file();
     if (res != FR_OK) {
@@ -197,6 +200,7 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
 void lw_stop(void) {
   flush_io_buf();
   f_sync(&log_file_obj);
+  f_truncate(&log_file_obj);
   f_close(&log_file_obj);
   f_mount(0, "", 0);
   set_led(LED1, LED_OFF);
@@ -218,20 +222,48 @@ int lw_is_error(void) {
 
 void lw_get_status(lw_Status* out) {
   out->file_name   = log_file_name;
-  out->file_size   = error_state ? 0 : f_size(&log_file_obj);
+  out->file_size   = error_state ? 0 : f_tell(&log_file_obj);
   out->file_count  = file_counter;
   out->error_count = error_count;
   out->error_state = error_state;
   out->last_error = last_error;
   out->last_error_at = last_error_at;
+  out->recovery_count = recovery_count;
   out->block_count = block_counter;
+}
+
+#define RECOVERY_DELAY_MS 1000
+
+static FRESULT recover_file(void) {
+  f_close(&log_file_obj);
+  // Remount SD — card may need full re-init after GC stall
+  f_mount(0, "", 0);
+  HAL_Delay(RECOVERY_DELAY_MS);
+  FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
+  if (res != FR_OK) return res;
+  res = create_new_log_file();
+  if (res == FR_OK) {
+    recovery_count++;
+    error_count = 0;
+  }
+  return res;
 }
 
 static FRESULT flush_io_buf(void) {
   if (io_pos == 0) return FR_OK;
   UINT bw;
   FRESULT res = f_write(&log_file_obj, io_buf, io_pos, &bw);
-  io_pos = 0;
+  if (res == FR_OK) {
+    io_pos = 0;
+    return FR_OK;
+  }
+  // Write failed — file object may be invalid, try recovery
+  uint16_t saved_pos = io_pos;
+  io_pos = 0;  // clear before recovery (create_new_log_file writes header)
+  res = recover_file();
+  if (res != FR_OK) return handle_error(res, "recovery");
+  // Retry writing the lost buffer into the new file
+  res = f_write(&log_file_obj, io_buf, saved_pos, &bw);
   if (res != FR_OK) return handle_error(res, "write");
   return FR_OK;
 }
@@ -245,6 +277,10 @@ static FRESULT create_new_log_file(void) {
 
   FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_ALWAYS | FA_WRITE);
   if (res != FR_OK) return handle_error(res, "create");
+
+  // Pre-allocate contiguous space before any writes (objsize must be 0)
+  f_expand(&log_file_obj, MAX_FILE_SIZE, 1);
+  f_lseek(&log_file_obj, 0);
 
   res = write_mlg_file_header();
   if (res != FR_OK) {
