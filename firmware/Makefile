@@ -40,7 +40,17 @@ test:
 
 # --- Flash & Reset ---
 
-flash: build
+sd-stop:
+	@DEV=$$(ls /dev/cu.usbmodem* 2>/dev/null | head -1); \
+	if [ -n "$$DEV" ]; then \
+		echo "Stopping SD via $$DEV..."; \
+		printf 'stop\r' > "$$DEV"; \
+		sleep 1; \
+	else \
+		echo "No USB CDC device found, skipping sd-stop"; \
+	fi
+
+flash: build sd-stop
 	$(PROGRAMMER) -c port=SWD sn=$(STLINK_SN) -w $(ELF) -v -rst
 
 erase:
@@ -52,7 +62,7 @@ reset:
 # --- Debug (OpenOCD) ---
 
 ocd-server:
-	openocd -f interface/stlink.cfg -c "hla_serial $(STLINK_SN)" -f target/stm32f4x.cfg
+	openocd -f interface/stlink.cfg -c "adapter serial $(STLINK_SN)" -f target/stm32f4x.cfg
 
 ocd-debug: build
 	$(GDB) $(ELF) \

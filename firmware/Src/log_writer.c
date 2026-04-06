@@ -29,6 +29,8 @@ static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
 static uint32_t file_counter = 0;
 static int error_count = 0;
+static FRESULT last_error = FR_OK;
+static const char* last_error_at = "";
 static uint8_t block_counter = 0;
 static uint32_t last_log_tick = 0;
 
@@ -45,8 +47,8 @@ static uint32_t datetime_to_unix(const DateTime* dt);
 static void set_led(int led, int state);
 static void toggle_led(int led, uint32_t* last_tick, uint32_t interval);
 static FRESULT create_new_log_file(void);
-static void set_error_state(void);
-static FRESULT handle_error(FRESULT res);
+static void set_error_state(FRESULT res, const char* at);
+static FRESULT handle_error(FRESULT res, const char* at);
 
 static FRESULT write_mlg_file_header(void) {
   uint32_t data_begin = MLG_HEADER_SIZE + num_mlg_fields * MLG_FIELD_SIZE;
@@ -85,7 +87,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   // Mount SD
   FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
   if (res != FR_OK) {
-    set_error_state();
+    set_error_state(res, "mount");
     return -1;
   }
 
@@ -93,7 +95,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   FIL cfg_file;
   res = f_open(&cfg_file, CONFIG_FILE_NAME, FA_READ);
   if (res != FR_OK) {
-    set_error_state();
+    set_error_state(res, "cfg_open");
     return -1;
   }
 
@@ -101,7 +103,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   res = f_read(&cfg_file, config_buf, CONFIG_BUF_SIZE - 1, &bytes_read);
   f_close(&cfg_file);
   if (res != FR_OK) {
-    set_error_state();
+    set_error_state(res, "cfg_read");
     return -1;
   }
   config_buf[bytes_read] = '\0';
@@ -109,7 +111,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   // Parse config
   int parse_ret = cfg_parse(config_buf, bytes_read, cfg_out);
   if (parse_ret != CFG_OK) {
-    set_error_state();
+    set_error_state(FR_INT_ERR, "cfg_parse");
     return -1;
   }
 
@@ -119,7 +121,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
 
   // Init field values shadow buffer
   if (can_map_init(fv_out, cfg_out) != 0) {
-    set_error_state();
+    set_error_state(FR_INT_ERR, "can_init");
     return -1;
   }
   record_length = fv_out->record_length;
@@ -128,7 +130,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   set_led(LED1, LED_ON);
   res = create_new_log_file();
   if (res != FR_OK) {
-    set_error_state();
+    set_error_state(res, "create");
     return -1;
   }
 
@@ -156,7 +158,7 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
   UINT bw;
   FRESULT res = f_write(&log_file_obj, write_buf, ret, &bw);
   if (res != FR_OK) {
-    return handle_error(res);
+    return handle_error(res, "write");
   }
 
   // Sync periodically
@@ -170,7 +172,7 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
     f_close(&log_file_obj);
     res = create_new_log_file();
     if (res != FR_OK) {
-      return handle_error(res);
+      return handle_error(res, "rotate");
     }
   }
 
@@ -204,6 +206,8 @@ void lw_get_status(lw_Status* out) {
   out->file_count  = file_counter;
   out->error_count = error_count;
   out->error_state = error_state;
+  out->last_error = last_error;
+  out->last_error_at = last_error_at;
   out->block_count = block_counter;
 }
 
@@ -215,12 +219,12 @@ static FRESULT create_new_log_file(void) {
            (int)(file_counter++ % 100));
 
   FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_ALWAYS | FA_WRITE);
-  if (res != FR_OK) return handle_error(res);
+  if (res != FR_OK) return handle_error(res, "create");
 
   res = write_mlg_file_header();
   if (res != FR_OK) {
     f_close(&log_file_obj);
-    return handle_error(res);
+    return handle_error(res, "header");
   }
 
   block_counter = 0;
@@ -268,12 +272,16 @@ static void toggle_led(int led, uint32_t* last_tick, uint32_t interval) {
   }
 }
 
-static void set_error_state(void) {
+static void set_error_state(FRESULT res, const char* at) {
   error_state = 1;
+  last_error = res;
+  last_error_at = at;
 }
 
-static FRESULT handle_error(FRESULT res) {
+static FRESULT handle_error(FRESULT res, const char* at) {
   error_count++;
-  if (error_count >= MAX_ERROR_COUNT) set_error_state();
+  last_error = res;
+  last_error_at = at;
+  if (error_count >= MAX_ERROR_COUNT) set_error_state(res, at);
   return res;
 }

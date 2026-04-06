@@ -147,7 +147,8 @@ static void cmd_help(void) {
          "  stream  - toggle periodic output\r\n"
          "  config  - show loaded config\r\n"
          "  ls      - list MLG files on SD\r\n"
-         "  get <f> - download file (use usb_get.py)\r\n");
+         "  get <f> - download file (use usb_get.py)\r\n"
+         "  stop    - close SD safely (before flash)\r\n");
 }
 
 static void cmd_status(const ring_Buffer* rb) {
@@ -159,9 +160,13 @@ static void cmd_status(const ring_Buffer* rb) {
   // Log writer state
   lw_Status lws;
   lw_get_status(&lws);
-  printf("file=%s size=%lu files=%lu blocks=%u err=%d/%d\r\n",
+  printf("file=%s size=%lu files=%lu blocks=%u err=%d/%d",
          lws.file_name, lws.file_size, lws.file_count,
          lws.block_count, lws.error_count, lws.error_state);
+  if (lws.error_count > 0) {
+    printf(" last=FR_%d@%s", (int)lws.last_error, lws.last_error_at);
+  }
+  printf("\r\n");
 
   // Ring buffer
   printf("rb: count=%lu head=%lu tail=%lu\r\n",
@@ -302,6 +307,10 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
     cmd_config(init_ok ? cfg : NULL);
   } else if (strcmp(line, "ls") == 0) {
     cmd_ls();
+  } else if (strcmp(line, "stop") == 0) {
+    extern volatile uint8_t lw_shutdown;
+    printf("Stopping SD...\r\n");
+    lw_shutdown = 1;
   } else if (strncmp(line, "get ", 4) == 0) {
     cmd_get(line + 4);
   } else {

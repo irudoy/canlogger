@@ -28,6 +28,8 @@ typedef struct {
   uint32_t    file_count;  // number of log files created
   int         error_count; // SD error count
   int         error_state; // 1 = fatal error
+  FRESULT     last_error;  // last FatFS error code
+  const char* last_error_at; // where last error occurred (e.g. "mount", "write")
   uint8_t     block_count; // data blocks written in current file
 } lw_Status;
 
