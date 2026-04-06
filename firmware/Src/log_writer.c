@@ -42,12 +42,18 @@ static size_t record_length = 0;
 static uint8_t write_buf[512];
 static char config_buf[CONFIG_BUF_SIZE];
 
+// I/O buffer: accumulate records, write to SD in larger chunks
+#define IO_BUF_SIZE 4096
+static uint8_t io_buf[IO_BUF_SIZE];
+static uint16_t io_pos = 0;
+
 static void get_current_datetime(DateTime* dt);
 static uint32_t datetime_to_unix(const DateTime* dt);
 static void set_led(int led, int state);
 static void toggle_led(int led, uint32_t* last_tick, uint32_t interval);
 static FRESULT create_new_log_file(void);
 static void set_error_state(FRESULT res, const char* at);
+static FRESULT flush_io_buf(void);
 static FRESULT handle_error(FRESULT res, const char* at);
 
 static FRESULT write_mlg_file_header(void) {
@@ -155,20 +161,29 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
                                   fv->values, fv->record_length);
   if (ret < 0) return FR_INT_ERR;
 
-  UINT bw;
-  FRESULT res = f_write(&log_file_obj, write_buf, ret, &bw);
-  if (res != FR_OK) {
-    return handle_error(res, "write");
+  // Accumulate in I/O buffer, flush when full
+  if (io_pos + ret > IO_BUF_SIZE) {
+    FRESULT res = flush_io_buf();
+    if (res != FR_OK) return res;
   }
+  memcpy(io_buf + io_pos, write_buf, ret);
+  io_pos += ret;
 
-  // Sync periodically
+  // Sync periodically (every 100 blocks)
   static uint32_t sync_counter = 0;
   if (++sync_counter % 100 == 0) {
-    f_sync(&log_file_obj);
+    FRESULT res = flush_io_buf();
+    if (res != FR_OK) return res;
+    res = f_sync(&log_file_obj);
+    if (res != FR_OK) {
+      return handle_error(res, "sync");
+    }
   }
 
   // File rotation
-  if (f_size(&log_file_obj) >= MAX_FILE_SIZE) {
+  if (f_size(&log_file_obj) + io_pos >= MAX_FILE_SIZE) {
+    FRESULT res = flush_io_buf();
+    if (res != FR_OK) return res;
     f_close(&log_file_obj);
     res = create_new_log_file();
     if (res != FR_OK) {
@@ -180,6 +195,7 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
 }
 
 void lw_stop(void) {
+  flush_io_buf();
   f_sync(&log_file_obj);
   f_close(&log_file_obj);
   f_mount(0, "", 0);
@@ -209,6 +225,15 @@ void lw_get_status(lw_Status* out) {
   out->last_error = last_error;
   out->last_error_at = last_error_at;
   out->block_count = block_counter;
+}
+
+static FRESULT flush_io_buf(void) {
+  if (io_pos == 0) return FR_OK;
+  UINT bw;
+  FRESULT res = f_write(&log_file_obj, io_buf, io_pos, &bw);
+  io_pos = 0;
+  if (res != FR_OK) return handle_error(res, "write");
+  return FR_OK;
 }
 
 static FRESULT create_new_log_file(void) {

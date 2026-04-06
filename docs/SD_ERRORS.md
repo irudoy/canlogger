@@ -2,47 +2,76 @@
 
 ## Observed problem (2026-04-06)
 
-After ~20 minutes of continuous logging, `lw_tick` gets `FR_DISK_ERR` (FatFS code 1) from `f_write`.
+After continuous logging, `lw_tick` gets `FR_DISK_ERR` (FatFS code 1) from `f_write` or `f_sync`.
 After 5 consecutive errors (`MAX_ERROR_COUNT`), firmware enters `error_state=1` and stops logging until reboot.
 
-## Timeline from session
+## Timeline from sessions
 
+Old card (16GB):
 ```
 uptime=132s  err=0/0  size=62039   blocks=86   — OK
 uptime=902s  err=0/0  size=416078  blocks=119  — OK
-uptime=975s  err=0/0  size=449658  blocks=43   — OK
-uptime=1199s err=5/1  size=0       blocks=231  last=FR_1@write — FATAL
+uptime=1199s err=5/1  last=FR_1@write — FATAL (~20 min, sync every 100 blocks)
 ```
 
-Failure happened between 975s and 1199s (~16-20 minutes).
+SanDisk Ultra 32GB A1:
+```
+uptime=3974s err=5/1  last=FR_1@write — FATAL (~66 min, sync every 100 blocks)
+uptime=406s  err=5/1  last=FR_1@sync  — FATAL (~7 min, sync every 10 blocks)
+```
+
+Key finding: **more frequent f_sync triggers failure faster**.
+
+## Root cause analysis
+
+**SD card internal garbage collection (GC) stalls.** All SD cards periodically block I/O for up to 200ms during internal housekeeping (wear-leveling, GC). When f_sync hits this window, SDIO times out → FR_DISK_ERR.
+
+Evidence:
+- Two different cards, same symptom → not card-specific
+- f_sync every 10 blocks fails in 7 min, every 100 blocks lasts 60+ min → frequency-dependent
+- Error is always on I/O operation (write or sync), not on data corruption
 
 ## Conditions
 
-- SD: 16GB, SDIO 1-bit mode
-- CAN: 2 active IDs (0x640 @ ~50Hz, 0x665 @ ~1Hz), 13 fields
-- USB CDC active (status polling every 3 min)
-- f_sync every 100 blocks
-- f_sync result was not checked (ignored)
+- MCU: STM32F407, SDIO 1-bit mode, ClockDiv=4 (8 MHz)
+- FatFS, no DMA (polled mode)
+- CAN: 2 active IDs (~50Hz), 13 fields
+- Write rate: ~50 records/sec, ~46 bytes each (~2.3 KB/s)
+- f_write called per record (small writes, not buffered)
 
-## Diagnosis added
+## Planned fixes (priority order)
 
-Added `last_error` (FRESULT code) and `last_error_at` (source tag) to `lw_Status`.
-Tags: `mount`, `cfg_open`, `cfg_read`, `cfg_parse`, `can_init`, `create`, `header`, `write`, `rotate`, `sync`.
+### 1. Pre-allocate file with f_expand()
+Pre-allocate contiguous space (e.g. 4 MB = MAX_FILE_SIZE) when creating log file.
+Eliminates FAT table updates during writes — major source of GC triggers.
 
-Status now shows: `err=5/1 last=FR_1@write`
+### 2. Buffer writes to cluster-aligned blocks
+Instead of f_write per record (~46 bytes), accumulate in RAM buffer and write 4KB+ chunks.
+Reduces number of SD transactions, avoids hitting GC window on small writes.
 
-## Possible causes
+### 3. Reduce f_sync frequency
+Sync every 100-500 blocks (5-25 seconds at 50ms interval). Less sync = less chance of hitting GC.
+Max data loss at crash = last sync interval.
 
-1. **SD card GC/wear-leveling latency** — cheap cards can stall for 100-500ms during internal housekeeping, causing SDIO timeout
-2. **SDIO timing drift** — MCU temperature rise after prolonged operation could affect clock margins
-3. **Power supply sag** — simultaneous CAN RX + SD write + USB could cause voltage dip
-4. **SD card quality** — low-endurance card, not designed for continuous writes
+### 4. Measure sync duration
+Profile f_sync time. If >200ms, confirms GC stall hypothesis. Add to status output.
 
-## Planned fixes (see REQUIREMENTS.md v1.0)
+### 5. SDIO hardware flow control
+Enable `SDIO_HARDWARE_FLOW_CONTROL_ENABLE` — SDIO controller pauses when card signals busy,
+instead of timing out.
 
-1. Check f_sync result (currently ignored)
-2. Recovery instead of fatal: close -> remount -> new file -> continue
-3. Reduce sync interval (100 -> 10 blocks)
-4. Cooldown after recovery (1s pause)
-5. Recovery counter in status output
-6. Investigate: SDIO clock divider, SD power, different card
+### 6. Recovery instead of fatal
+On FR_DISK_ERR: close → remount → new file → continue. Cooldown 1s.
+With f_expand + buffered writes, data loss limited to current buffer.
+
+### 7. DMA for SDIO
+Move from polled to DMA mode. Reduces CPU involvement, more tolerant of card stalls.
+Requires 32-bit aligned buffers.
+
+## References
+
+- [SD card GC stalls](https://www.embedded.com/taking-out-the-garbage/)
+- [FatFS f_expand](https://elm-chan.org/fsw/ff/doc/expand.html)
+- [FatFS application notes](https://elm-chan.org/fsw/ff/doc/appnote.html)
+- [STM32F4 SDIO best practices](https://blog.frankvh.com/2011/12/30/stm32f2xx-stm32f4xx-sdio-interface-part-2/)
+- [Betaflight Blackbox approach](https://betaflight.com/docs/development/Blackbox)

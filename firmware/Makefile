@@ -59,6 +59,20 @@ erase:
 reset:
 	$(PROGRAMMER) -c port=SWD sn=$(STLINK_SN) -rst
 
+cdc-status:
+	@DEV=$$(ls /dev/cu.usbmodem* 2>/dev/null | head -1); \
+	if [ -n "$$DEV" ]; then \
+		stty -f "$$DEV" 115200 raw -echo; \
+		cat "$$DEV" > /tmp/cdc_out.txt & CATPID=$$!; \
+		sleep 0.5; \
+		printf 'status\r' > "$$DEV"; \
+		sleep 2; \
+		kill $$CATPID 2>/dev/null; wait $$CATPID 2>/dev/null; \
+		cat /tmp/cdc_out.txt; \
+	else \
+		echo "No USB CDC device found"; \
+	fi
+
 # --- Debug (OpenOCD) ---
 
 ocd-server:
