@@ -14,7 +14,7 @@
 #define MAX_FILE_SIZE (4 * 1024 * 1024)
 #define MAX_ERROR_COUNT 5
 #define CONFIG_FILE_NAME "config.ini"
-#define CONFIG_BUF_SIZE 4096
+#define CONFIG_BUF_SIZE 8192
 
 extern RTC_HandleTypeDef hrtc;
 
@@ -40,12 +40,12 @@ static mlg_Field mlg_fields[CFG_MAX_FIELDS];
 static uint16_t num_mlg_fields = 0;
 static size_t record_length = 0;
 
-static uint8_t write_buf[512];
+static uint8_t write_buf[512] __attribute__((aligned(4)));
 static char config_buf[CONFIG_BUF_SIZE];
 
 // I/O buffer: accumulate records, write to SD in larger chunks
 #define IO_BUF_SIZE 4096
-static uint8_t io_buf[IO_BUF_SIZE];
+static uint8_t io_buf[IO_BUF_SIZE] __attribute__((aligned(4)));
 static uint16_t io_pos = 0;
 
 static void get_current_datetime(DateTime* dt);
