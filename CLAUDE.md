@@ -21,12 +21,15 @@ firmware/
 │   ├── mlvlg.*   # MLVLG v2 encoder (done, 17 unit + 4 snapshot tests)
 │   ├── config.*  # INI config parser + LUT (done, 22 tests)
 │   ├── can_map.* # CAN → field values mapper + LUT interpolation (done, 17 tests)
+│   ├── demo_gen.*# Demo data generator: sine/ramp/square/noise/const (done, 10 tests)
+│   ├── cfg_limits.h # Shared limits (CFG_MAX_FIELDS, CFG_MAX_CAN_IDS)
 │   └── ring_buf.*# SPSC ring buffer for CAN frames (done, 7 tests)
 ├── Src/          # HAL wrappers
 │   ├── main.c    # Init, main loop, glue
 │   ├── can_drv.c # CAN HAL → ring_buf (ISR callback)
 │   ├── log_writer.c # SD: read config, write MLG, LED, error handling
-│   ├── debug_out.c # USB CDC CLI (help/status/stream/config/ls/get), echo, buffered printf
+│   ├── sd_write_dma.c # BSP override: DMA write fix (CubeMX-safe)
+│   ├── debug_out.c # USB CDC CLI (help/status/stream/config/ls/get/put), echo, buffered printf
 │   ├── usbd_*.c  # USB Device CDC (CubeMX generated)
 │   └── usb_device.c # USB Device init (CubeMX generated)
 ├── Inc/          # Headers for Src/
@@ -48,7 +51,7 @@ docs/
 ```bash
 make build        # RTC time gen + CubeIDE headless build → Debug/canlogger.elf
 make clean        # Clean rebuild
-make test         # Run host unit tests (Unity), 67 tests
+make test         # Run host unit tests (Unity)
 make flash        # Build + flash via ST-Link SWD
 make erase        # Full chip erase
 make reset        # Hardware reset
@@ -57,6 +60,10 @@ make ocd-debug    # Build + GDB connect via OpenOCD
 make ocd-status   # Run 3s, halt, print runtime variables
 make gdb-server   # ST-LINK GDB server (requires recent ST-Link firmware)
 make debug        # GDB connect via ST-LINK server
+make gdb-read EXPRS="var1 var2"  # Read variables via GDB (auto OpenOCD)
+make gdb-exec SCRIPT=file.gdb   # Run GDB script (auto OpenOCD)
+make cdc-cmd CMD=status          # Send CDC command, read response
+make cdc-put FILE=config.ini     # Upload file to SD via CDC
 ```
 
 Build system: STM32CubeIDE headless (`.project`/`.cproject`).

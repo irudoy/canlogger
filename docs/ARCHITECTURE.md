@@ -20,6 +20,9 @@
 │  │ config   │  │ can_map  │  │  mlvlg   │  │ ring_buf   │   │
 │  │ parser   │  │ mapper   │  │ encoder  │  │            │   │
 │  └──────────┘  └──────────┘  └──────────┘  └────────────┘   │
+│  ┌──────────┐                                               │
+│  │ demo_gen │                                               │
+│  └──────────┘                                               │
 ├─────────────────────────────────────────────────────────────┤
 │                    Src/ (HAL wrappers)                      │
 │                                                             │
@@ -39,9 +42,8 @@
 Читает INI-подобный текст из буфера (не с файловой системы) и заполняет массив структур.
 
 ```c
-// Lib/config.h
+// Lib/config.h (CFG_MAX_FIELDS, CFG_MAX_CAN_IDS — в cfg_limits.h)
 
-#define CFG_MAX_FIELDS 32
 #define CFG_NAME_SIZE  34
 #define CFG_UNITS_SIZE 10
 #define CFG_CAT_SIZE   34
@@ -64,8 +66,13 @@ typedef struct {
 
 typedef struct {
   uint32_t  log_interval_ms;  // интервал записи data block (напр. 10)
+  uint32_t  can_bitrate;      // скорость CAN (default 500000)
   cfg_Field fields[CFG_MAX_FIELDS];
   uint16_t  num_fields;
+  uint32_t  can_ids[CFG_MAX_CAN_IDS];
+  uint16_t  num_can_ids;
+  uint8_t   demo;             // авто: 1 если есть поля с demo_func
+  demo_Gen  demo_gen;
 } cfg_Config;
 
 // Парсит INI-текст из буфера. Возвращает 0 при успехе, код ошибки иначе.
@@ -266,7 +273,6 @@ category = Engine
 |------|-------------|---------|----------|
 | `interval_ms` | да | — | Интервал записи data block (мс) |
 | `can_bitrate` | нет | 500000 | Скорость CAN шины (125000/250000/500000/1000000) |
-| `demo` | нет | 0 | 1 = включить генерацию demo-данных для полей с `demo_func` |
 
 ### Секции `[field]`
 
@@ -296,6 +302,7 @@ category = Engine
 - Уникальные CAN ID автоматически собираются для настройки hardware фильтров
 - Валидация: `bit_length` кратен 8, `start_byte + bit_length/8 <= 8`
 - Demo-поля (с `demo_func`) не требуют `can_id`/`start_byte`/`bit_length` — тип и размер определяются из `type`
+- Demo-режим включается автоматически при наличии хотя бы одного поля с `demo_func`
 - CAN и demo поля могут сосуществовать в одном конфиге (гибридный режим)
 - Максимальный размер config.ini — 8 КБ
 
