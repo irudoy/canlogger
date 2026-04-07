@@ -3,9 +3,8 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include "cfg_limits.h"
 #include "demo_gen.h"
-
-#define CFG_MAX_FIELDS 32
 #define CFG_NAME_SIZE  34
 #define CFG_UNITS_SIZE 10
 #define CFG_CAT_SIZE   34
@@ -33,8 +32,6 @@ typedef struct {
   uint8_t  lut_count;
 } cfg_Field;
 
-#define CFG_MAX_CAN_IDS 32
-
 typedef struct {
   uint32_t  log_interval_ms;
   uint32_t  can_bitrate;             // 125000, 250000, 500000, 1000000 (default 500000)
@@ -43,8 +40,8 @@ typedef struct {
   // Derived: unique CAN IDs from fields (for hardware filter setup)
   uint32_t  can_ids[CFG_MAX_CAN_IDS];
   uint16_t  num_can_ids;
-  // Demo mode
-  uint8_t   demo;                    // 1 = generate demo data instead of CAN
+  // Demo mode (auto-detected: set if any field has demo_func)
+  uint8_t   demo;
   demo_Gen  demo_gen;
 } cfg_Config;
 

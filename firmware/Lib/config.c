@@ -202,8 +202,6 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
         out->log_interval_ms = parse_uint32(val_buf);
       } else if (strcmp(raw_key, "can_bitrate") == 0) {
         out->can_bitrate = parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "demo") == 0) {
-        out->demo = (uint8_t)parse_uint32(val_buf);
       }
     } else if (section == SEC_FIELD && field_idx >= 0) {
       cfg_Field* f = &out->fields[field_idx];
@@ -283,7 +281,13 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
     if (f->start_byte + f->bit_length / 8 > 8) return CFG_ERR_VALUE;
   }
 
-  // Initialize demo generator if enabled
+  // Auto-detect demo mode: enabled if any field has demo_func
+  for (int i = 0; i < out->num_fields; i++) {
+    if (out->demo_gen.params[i].func != DEMO_NONE) {
+      out->demo = 1;
+      break;
+    }
+  }
   if (out->demo) {
     out->demo_gen.num_fields = out->num_fields;
     out->demo_gen.enabled = 1;

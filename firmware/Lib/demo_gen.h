@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include "cfg_limits.h"
 
 // Demo waveform types
 typedef enum {
@@ -31,8 +32,8 @@ typedef struct {
 
 // Overall demo generator state
 typedef struct {
-  demo_FieldParams params[32]; // matches CFG_MAX_FIELDS
-  demo_FieldState  fstate[32];
+  demo_FieldParams params[CFG_MAX_FIELDS];
+  demo_FieldState  fstate[CFG_MAX_FIELDS];
   uint16_t         num_fields;
   uint8_t          enabled;    // 1 if demo mode active
 } demo_Gen;

@@ -15,7 +15,6 @@ void tearDown(void) {}
 static const char* MINI_DEMO_CONFIG =
   "[logger]\n"
   "interval_ms=10\n"
-  "demo=1\n"
   "\n"
   "[field]\n"
   "name=RPM\n"
@@ -156,7 +155,6 @@ void test_demo_const_value(void) {
   const char* cfg_text =
     "[logger]\n"
     "interval_ms=10\n"
-    "demo=1\n"
     "[field]\n"
     "name=Test\n"
     "units=V\n"
@@ -187,7 +185,6 @@ void test_demo_square_wave(void) {
   const char* cfg_text =
     "[logger]\n"
     "interval_ms=10\n"
-    "demo=1\n"
     "[field]\n"
     "name=Fan\n"
     "units=A\n"
