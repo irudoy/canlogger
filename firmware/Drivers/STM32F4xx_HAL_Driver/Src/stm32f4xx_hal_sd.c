@@ -1335,51 +1335,24 @@ HAL_StatusTypeDef HAL_SD_WriteBlocks_DMA(SD_HandleTypeDef *hsd, uint8_t *pData, 
       add *= 512U;
     }
 
-    /* Set context before DMA start */
+    /* Write Blocks in Polling mode */
     if(NumberOfBlocks > 1U)
     {
       hsd->Context = (SD_CONTEXT_WRITE_MULTIPLE_BLOCK | SD_CONTEXT_DMA);
-    }
-    else
-    {
-      hsd->Context = (SD_CONTEXT_WRITE_SINGLE_BLOCK | SD_CONTEXT_DMA);
-    }
 
-    /* Force DMA Direction */
-    hsd->hdmatx->Init.Direction = DMA_MEMORY_TO_PERIPH;
-    MODIFY_REG(hsd->hdmatx->Instance->CR, DMA_SxCR_DIR, hsd->hdmatx->Init.Direction);
-
-    /* Step 1: Start DMA FIRST so FIFO begins filling before card expects data.
-     * ChibiOS order: DMA enable → CMD24/CMD25 → DCTRL.
-     * Stock HAL sends CMD before DMA — card starts waiting for data while
-     * FIFO is still empty → TX_UNDERRUN. */
-    if(HAL_DMA_Start_IT(hsd->hdmatx, (uint32_t)pData, (uint32_t)&hsd->Instance->FIFO, (uint32_t)(BLOCKSIZE * NumberOfBlocks)/4U) != HAL_OK)
-    {
-#if defined(SDIO_STA_STBITERR)
-      __HAL_SD_DISABLE_IT(hsd, (SDIO_IT_DCRCFAIL | SDIO_IT_DTIMEOUT | SDIO_IT_TXUNDERR | SDIO_IT_STBITERR));
-#else /* SDIO_STA_STBITERR not defined */
-      __HAL_SD_DISABLE_IT(hsd, (SDIO_IT_DCRCFAIL | SDIO_IT_DTIMEOUT | SDIO_IT_TXUNDERR));
-#endif /* SDIO_STA_STBITERR */
-      __HAL_SD_CLEAR_FLAG(hsd, SDIO_STATIC_FLAGS);
-      hsd->ErrorCode |= HAL_SD_ERROR_DMA;
-      hsd->State = HAL_SD_STATE_READY;
-      hsd->Context = SD_CONTEXT_NONE;
-      return HAL_ERROR;
-    }
-
-    /* Step 2: Send write command AFTER DMA is running */
-    if(NumberOfBlocks > 1U)
-    {
+      /* Write Multi Block command */
       errorstate = SDMMC_CmdWriteMultiBlock(hsd->Instance, add);
     }
     else
     {
+      hsd->Context = (SD_CONTEXT_WRITE_SINGLE_BLOCK | SD_CONTEXT_DMA);
+
+      /* Write Single Block command */
       errorstate = SDMMC_CmdWriteSingleBlock(hsd->Instance, add);
     }
     if(errorstate != HAL_SD_ERROR_NONE)
     {
-      /* Abort DMA since command failed */
-      HAL_DMA_Abort(hsd->hdmatx);
+      /* Clear all the static flags */
       __HAL_SD_CLEAR_FLAG(hsd, SDIO_STATIC_FLAGS);
       hsd->ErrorCode |= errorstate;
       hsd->State = HAL_SD_STATE_READY;
@@ -1387,14 +1360,40 @@ HAL_StatusTypeDef HAL_SD_WriteBlocks_DMA(SD_HandleTypeDef *hsd, uint8_t *pData, 
       return HAL_ERROR;
     }
 
-    /* Step 3: Enable SDIO data path LAST — DTIMER, DLEN, then DCTRL */
-    hsd->Instance->DTIMER = SDMMC_DATATIMEOUT;
-    hsd->Instance->DLEN   = BLOCKSIZE * NumberOfBlocks;
-    hsd->Instance->DCTRL  = SDIO_DCTRL_DMAEN | SDIO_DCTRL_DTEN
-                           | SDIO_DATABLOCK_SIZE_512B;
-    /* DTDIR=0 (to card), DTMODE=0 (block) — both zero, no bits needed */
+    /* Enable SDIO DMA transfer */
+    __HAL_SD_DMA_ENABLE(hsd);
 
-    return HAL_OK;
+    /* Force DMA Direction */
+    hsd->hdmatx->Init.Direction = DMA_MEMORY_TO_PERIPH;
+    MODIFY_REG(hsd->hdmatx->Instance->CR, DMA_SxCR_DIR, hsd->hdmatx->Init.Direction);
+
+    /* Enable the DMA Channel */
+    if(HAL_DMA_Start_IT(hsd->hdmatx, (uint32_t)pData, (uint32_t)&hsd->Instance->FIFO, (uint32_t)(BLOCKSIZE * NumberOfBlocks)/4U) != HAL_OK)
+    {
+#if defined(SDIO_STA_STBITERR)
+      __HAL_SD_DISABLE_IT(hsd, (SDIO_IT_DCRCFAIL | SDIO_IT_DTIMEOUT | SDIO_IT_TXUNDERR | SDIO_IT_STBITERR));
+#else /* SDIO_STA_STBITERR not defined */
+      __HAL_SD_DISABLE_IT(hsd, (SDIO_IT_DCRCFAIL | SDIO_IT_DTIMEOUT | SDIO_IT_TXUNDERR));   
+#endif /* SDIO_STA_STBITERR */
+      __HAL_SD_CLEAR_FLAG(hsd, SDIO_STATIC_FLAGS);
+      hsd->ErrorCode |= HAL_SD_ERROR_DMA;
+      hsd->State = HAL_SD_STATE_READY;
+      hsd->Context = SD_CONTEXT_NONE;
+      return HAL_ERROR;
+    }
+    else
+    {
+      /* Configure the SD DPSM (Data Path State Machine) */
+      config.DataTimeOut   = SDMMC_DATATIMEOUT;
+      config.DataLength    = BLOCKSIZE * NumberOfBlocks;
+      config.DataBlockSize = SDIO_DATABLOCK_SIZE_512B;
+      config.TransferDir   = SDIO_TRANSFER_DIR_TO_CARD;
+      config.TransferMode  = SDIO_TRANSFER_MODE_BLOCK;
+      config.DPSM          = SDIO_DPSM_ENABLE;
+      (void)SDIO_ConfigData(hsd->Instance, &config);
+
+      return HAL_OK;
+    }
   }
   else
   {

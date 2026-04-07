@@ -161,7 +161,7 @@ __weak uint8_t BSP_SD_ReadBlocks_DMA(uint32_t *pData, uint32_t ReadAddr, uint32_
 }
 
 /* USER CODE BEGIN BeforeWriteDMABlocksSection */
-/* can be used to modify previous code / undefine following code / add code */
+/* BSP_SD_WriteBlocks_DMA override is in Src/sd_write_dma.c */
 /* USER CODE END BeforeWriteDMABlocksSection */
 /**
   * @brief  Writes block(s) to a specified address in an SD card, in DMA mode.
