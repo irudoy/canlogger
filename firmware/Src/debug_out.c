@@ -17,6 +17,14 @@ static char cmd_buf[CMD_BUF_SIZE];
 static uint8_t cmd_pos = 0;
 static volatile uint8_t cmd_ready = 0;
 
+// --- File upload state ---
+#define PUT_BUF_SIZE 8192
+static uint8_t put_buf[PUT_BUF_SIZE];
+static volatile uint32_t put_expected = 0;   // expected file size
+static volatile uint32_t put_received = 0;   // bytes received so far
+static volatile uint8_t put_active = 0;      // 1 = receiving file data
+static char put_filename[13];                 // 8.3 filename
+
 // Flush buffer over USB CDC.
 // wait=1: retry up to 50ms (for command responses). wait=0: drop if busy (for stream).
 static uint8_t cdc_wait = 0;
@@ -113,6 +121,17 @@ void debug_out_tick(uint32_t frames_processed, uint16_t num_fields, int init_ok)
 static uint8_t echo_buf[CMD_BUF_SIZE + 2];
 
 void debug_cmd_receive(const uint8_t* buf, uint32_t len) {
+  // File upload raw mode — no echo, no command parsing
+  if (put_active) {
+    for (uint32_t i = 0; i < len && put_received < put_expected; i++) {
+      if (put_received < PUT_BUF_SIZE) {
+        put_buf[put_received] = buf[i];
+      }
+      put_received++;
+    }
+    return;
+  }
+
   // Any input stops stream so user can type
   if (stream_enabled) stream_enabled = 0;
 
@@ -142,13 +161,14 @@ void debug_cmd_receive(const uint8_t* buf, uint32_t len) {
 
 static void cmd_help(void) {
   printf("Commands:\r\n"
-         "  help    - this message\r\n"
-         "  status  - system status\r\n"
-         "  stream  - toggle periodic output\r\n"
-         "  config  - show loaded config\r\n"
-         "  ls      - list MLG files on SD\r\n"
-         "  get <f> - download file (use usb_get.py)\r\n"
-         "  stop    - close SD safely (before flash)\r\n");
+         "  help      - this message\r\n"
+         "  status    - system status\r\n"
+         "  stream    - toggle periodic output\r\n"
+         "  config    - show loaded config\r\n"
+         "  ls        - list MLG files on SD\r\n"
+         "  get <f>   - download file (use usb_get.py)\r\n"
+         "  put <f> N - upload N bytes to file\r\n"
+         "  stop      - close SD safely (before flash)\r\n");
 }
 
 static void cmd_status(const ring_Buffer* rb) {
@@ -163,7 +183,7 @@ static void cmd_status(const ring_Buffer* rb) {
   printf("file=%s size=%lu files=%lu blocks=%u err=%d/%d",
          lws.file_name, lws.file_size, lws.file_count,
          lws.block_count, lws.error_count, lws.error_state);
-  if (lws.error_count > 0) {
+  if (lws.error_count > 0 || lws.error_state) {
     printf(" last=FR_%d@%s", (int)lws.last_error, lws.last_error_at);
   }
   if (lws.recovery_count > 0) {
@@ -284,6 +304,35 @@ static void cmd_get(const char* filename) {
 // --- Command poll (called from main loop) ---
 
 void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
+  // Check if file upload is complete
+  if (put_active && put_received >= put_expected) {
+    put_active = 0;
+    cdc_wait = 1;
+
+    // Stop logging before writing config
+    extern volatile uint8_t lw_shutdown;
+    lw_shutdown = 1;
+    HAL_Delay(100);  // let log_writer close file
+
+    FIL file;
+    FRESULT res = f_open(&file, put_filename, FA_CREATE_ALWAYS | FA_WRITE);
+    if (res != FR_OK) {
+      printf("ERR:open %d\r\n", res);
+    } else {
+      UINT bw;
+      uint32_t to_write = put_expected < PUT_BUF_SIZE ? put_expected : PUT_BUF_SIZE;
+      res = f_write(&file, put_buf, to_write, &bw);
+      f_close(&file);
+      if (res != FR_OK) {
+        printf("ERR:write %d\r\n", res);
+      } else {
+        printf("OK %lu\r\n", (uint32_t)bw);
+        printf("Reboot to apply.\r\n");
+      }
+    }
+    cdc_wait = 0;
+  }
+
   if (!cmd_ready) return;
 
   // Copy and reset
@@ -316,6 +365,29 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
     lw_shutdown = 1;
   } else if (strncmp(line, "get ", 4) == 0) {
     cmd_get(line + 4);
+  } else if (strncmp(line, "put ", 4) == 0) {
+    // Parse: put FILENAME SIZE
+    char* space = strchr(line + 4, ' ');
+    if (!space) {
+      printf("usage: put FILENAME SIZE\r\n");
+    } else {
+      *space = '\0';
+      const char* fname = line + 4;
+      uint32_t size = 0;
+      const char* sp = space + 1;
+      while (*sp >= '0' && *sp <= '9') { size = size * 10 + (*sp - '0'); sp++; }
+
+      if (size == 0 || size > PUT_BUF_SIZE) {
+        printf("ERR:size (max %d)\r\n", PUT_BUF_SIZE);
+      } else {
+        strncpy(put_filename, fname, sizeof(put_filename) - 1);
+        put_filename[sizeof(put_filename) - 1] = '\0';
+        put_expected = size;
+        put_received = 0;
+        put_active = 1;
+        printf("READY %lu\r\n", size);
+      }
+    }
   } else {
     printf("unknown: %s\r\n", line);
   }

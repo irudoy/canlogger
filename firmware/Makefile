@@ -112,6 +112,75 @@ ocd-dump:
 		-ex "monitor halt" \
 		-ex "source scripts/dump.gdb"
 
+# --- Debug (GDB batch helpers) ---
+
+# Read variables/expressions via GDB. Auto-starts and stops OpenOCD.
+# Usage: make gdb-read EXPRS="init_ok error_state log_file_name"
+#        make gdb-read EXPRS="*(uint32_t*)0x40012C34"
+gdb-read:
+	@openocd -f interface/stlink.cfg -c "adapter serial $(STLINK_SN)" -f target/stm32f4x.cfg > /tmp/openocd.log 2>&1 & \
+	OCD_PID=$$!; sleep 1; \
+	$(GDB) $(ELF) -batch \
+		-ex "target extended-remote :3333" \
+		-ex "monitor halt" \
+		$(foreach e,$(EXPRS),-ex "print $(e)") \
+		-ex "monitor resume" 2>&1; \
+	kill $$OCD_PID 2>/dev/null; wait $$OCD_PID 2>/dev/null; true
+
+# Run arbitrary GDB commands from a script file. Auto-starts and stops OpenOCD.
+# Usage: make gdb-exec SCRIPT=scripts/dump.gdb
+#    or: echo "bt\ninfo registers" > /tmp/cmds.gdb && make gdb-exec SCRIPT=/tmp/cmds.gdb
+gdb-exec:
+	@openocd -f interface/stlink.cfg -c "adapter serial $(STLINK_SN)" -f target/stm32f4x.cfg > /tmp/openocd.log 2>&1 & \
+	OCD_PID=$$!; sleep 1; \
+	$(GDB) $(ELF) -batch \
+		-ex "target extended-remote :3333" \
+		-ex "monitor halt" \
+		-x "$(SCRIPT)" \
+		-ex "monitor resume" 2>&1; \
+	kill $$OCD_PID 2>/dev/null; wait $$OCD_PID 2>/dev/null; true
+
+# Send CDC command and read response.
+# Usage: make cdc-cmd CMD=status
+#        make cdc-cmd CMD=config
+cdc-cmd:
+	@DEV=$$(ls /dev/cu.usbmodem* 2>/dev/null | head -1); \
+	if [ -n "$$DEV" ]; then \
+		stty -f "$$DEV" 115200 raw -echo; \
+		cat "$$DEV" > /tmp/cdc_out.txt & CATPID=$$!; \
+		sleep 0.5; \
+		printf '$(CMD)\r' > "$$DEV"; \
+		sleep 2; \
+		kill $$CATPID 2>/dev/null; wait $$CATPID 2>/dev/null; \
+		cat /tmp/cdc_out.txt; \
+	else \
+		echo "No USB CDC device found"; \
+	fi
+
+# Upload file to SD via CDC.
+# Usage: make cdc-put FILE=../test/demo_config.ini NAME=CONFIG.INI
+#        make cdc-put FILE=config.ini  (NAME defaults to CONFIG.INI)
+cdc-put:
+	@DEV=$$(ls /dev/cu.usbmodem* 2>/dev/null | head -1); \
+	if [ -z "$$DEV" ]; then echo "No USB CDC device found"; exit 1; fi; \
+	FNAME=$${NAME:-CONFIG.INI}; \
+	SIZE=$$(wc -c < "$(FILE)" | tr -d ' '); \
+	echo "Uploading $(FILE) ($$SIZE bytes) as $$FNAME"; \
+	stty -f "$$DEV" 115200 raw -echo; \
+	cat "$$DEV" > /tmp/cdc_put_out.txt & CATPID=$$!; \
+	sleep 0.5; \
+	printf "put $$FNAME $$SIZE\r" > "$$DEV"; \
+	sleep 1; \
+	if grep -q "READY" /tmp/cdc_put_out.txt; then \
+		cat "$(FILE)" > "$$DEV"; \
+		sleep 2; \
+		kill $$CATPID 2>/dev/null; wait $$CATPID 2>/dev/null; \
+		cat /tmp/cdc_put_out.txt; \
+	else \
+		kill $$CATPID 2>/dev/null; wait $$CATPID 2>/dev/null; \
+		echo "Device not ready:"; cat /tmp/cdc_put_out.txt; \
+	fi
+
 # --- Debug (ST-LINK GDB server, requires recent ST-Link firmware) ---
 
 gdb-server:
