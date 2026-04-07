@@ -1,4 +1,6 @@
 #include "config.h"
+#include "demo_gen.h"
+#include "mlvlg.h"
 #include <string.h>
 
 typedef enum {
@@ -200,6 +202,8 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
         out->log_interval_ms = parse_uint32(val_buf);
       } else if (strcmp(raw_key, "can_bitrate") == 0) {
         out->can_bitrate = parse_uint32(val_buf);
+      } else if (strcmp(raw_key, "demo") == 0) {
+        out->demo = (uint8_t)parse_uint32(val_buf);
       }
     } else if (section == SEC_FIELD && field_idx >= 0) {
       cfg_Field* f = &out->fields[field_idx];
@@ -231,6 +235,16 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
         copy_str(f->category, val_buf, CFG_CAT_SIZE);
       } else if (strcmp(raw_key, "lut") == 0) {
         if (parse_lut(val_buf, f->lut, &f->lut_count) != 0) return CFG_ERR_VALUE;
+      } else if (strcmp(raw_key, "demo_func") == 0) {
+        out->demo_gen.params[field_idx].func = demo_parse_func(val_buf);
+      } else if (strcmp(raw_key, "demo_min") == 0) {
+        out->demo_gen.params[field_idx].min_val = parse_float(val_buf);
+      } else if (strcmp(raw_key, "demo_max") == 0) {
+        out->demo_gen.params[field_idx].max_val = parse_float(val_buf);
+      } else if (strcmp(raw_key, "demo_period_ms") == 0) {
+        out->demo_gen.params[field_idx].period_ms = parse_uint32(val_buf);
+      } else if (strcmp(raw_key, "demo_smoothing") == 0) {
+        out->demo_gen.params[field_idx].smoothing = parse_float(val_buf);
       }
     }
   }
@@ -240,9 +254,10 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
   // Default bitrate
   if (out->can_bitrate == 0) out->can_bitrate = 500000;
 
-  // Collect unique CAN IDs from fields
+  // Collect unique CAN IDs from fields (skip demo-only fields with can_id=0)
   out->num_can_ids = 0;
   for (int i = 0; i < out->num_fields; i++) {
+    if (out->fields[i].can_id == 0) continue;
     int found = 0;
     for (int j = 0; j < out->num_can_ids; j++) {
       if (out->can_ids[j] == out->fields[i].can_id) { found = 1; break; }
@@ -255,8 +270,24 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
   // Validate fields
   for (int i = 0; i < out->num_fields; i++) {
     cfg_Field* f = &out->fields[i];
+    // Demo fields don't need CAN-specific validation
+    if (out->demo_gen.params[i].func != DEMO_NONE) {
+      // Set bit_length from type if not specified (needed for can_map_init)
+      if (f->bit_length == 0) {
+        size_t sz = mlg_field_data_size((mlg_FieldType)f->type);
+        f->bit_length = sz * 8;
+      }
+      continue;
+    }
     if (f->bit_length == 0 || f->bit_length % 8 != 0) return CFG_ERR_VALUE;
     if (f->start_byte + f->bit_length / 8 > 8) return CFG_ERR_VALUE;
+  }
+
+  // Initialize demo generator if enabled
+  if (out->demo) {
+    out->demo_gen.num_fields = out->num_fields;
+    out->demo_gen.enabled = 1;
+    demo_init(&out->demo_gen);
   }
 
   return CFG_OK;

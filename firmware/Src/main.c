@@ -29,6 +29,7 @@
 #include "ring_buf.h"
 #include "can_map.h"
 #include "debug_out.h"
+#include "demo_gen.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,6 +53,8 @@ CAN_HandleTypeDef hcan1;
 RTC_HandleTypeDef hrtc;
 
 SD_HandleTypeDef hsd;
+DMA_HandleTypeDef hdma_sdio_rx;
+DMA_HandleTypeDef hdma_sdio_tx;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t lw_shutdown = 0;
@@ -59,11 +62,16 @@ static ring_Buffer can_rx_buf;
 static cfg_Config config;
 static can_FieldValues field_values;
 static uint32_t can_frames_processed = 0;
+// Demo mode helper arrays (extracted from config for demo_generate)
+static uint8_t demo_field_types[CFG_MAX_FIELDS];
+static float demo_field_scales[CFG_MAX_FIELDS];
+static float demo_field_offsets[CFG_MAX_FIELDS];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_SDIO_SD_Init(void);
 static void MX_RTC_Init(void);
@@ -109,6 +117,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_CAN1_Init();
   MX_SDIO_SD_Init();
   MX_FATFS_Init();
@@ -123,9 +132,21 @@ int main(void)
   // Init SD, read config, write MLG header
   int init_ok = (lw_init(&config, &field_values) == 0);
 
+  // Extract field metadata for demo generator
+  if (init_ok && config.demo) {
+    for (int i = 0; i < config.num_fields; i++) {
+      demo_field_types[i] = config.fields[i].type;
+      demo_field_scales[i] = config.fields[i].scale;
+      demo_field_offsets[i] = config.fields[i].offset;
+    }
+  }
+
   if (init_ok) {
-    can_drv_init(&can_rx_buf, &config);
-    can_drv_start();
+    // Init CAN if there are real CAN fields (even in demo mode)
+    if (config.num_can_ids > 0) {
+      can_drv_init(&can_rx_buf, &config);
+      can_drv_start();
+    }
   } else {
     // No config — CAN sniffer mode: accept-all at default 500k
     config.can_bitrate = 500000;
@@ -145,7 +166,7 @@ int main(void)
       break;
     }
 
-    // Drain CAN ring buffer
+    // Drain CAN ring buffer (always, if CAN is active)
     {
       can_Frame frame;
       while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
@@ -153,6 +174,15 @@ int main(void)
         can_frames_processed++;
         debug_out_set_can(frame.id, frame.data, frame.dlc);
       }
+    }
+
+    // Generate demo data for fields with demo_func (runs alongside CAN)
+    if (init_ok && config.demo) {
+      demo_generate(&config.demo_gen,
+                    field_values.values, field_values.record_length,
+                    demo_field_types, demo_field_scales, demo_field_offsets,
+                    config.num_fields, HAL_GetTick());
+      field_values.updated = 1;
     }
 
     if (init_ok) {
@@ -369,8 +399,27 @@ static void MX_SDIO_SD_Init(void)
   hsd.Init.HardwareFlowControl = SDIO_HARDWARE_FLOW_CONTROL_DISABLE;
   hsd.Init.ClockDiv = 4;
   /* USER CODE BEGIN SDIO_Init 2 */
-  hsd.Init.BusWide = SDIO_BUS_WIDE_1B;
+
   /* USER CODE END SDIO_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream3_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream3_IRQn);
+  /* DMA2_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream6_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream6_IRQn);
 
 }
 

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
+#include "demo_gen.h"
 
 #define CFG_MAX_FIELDS 32
 #define CFG_NAME_SIZE  34
@@ -42,6 +43,9 @@ typedef struct {
   // Derived: unique CAN IDs from fields (for hardware filter setup)
   uint32_t  can_ids[CFG_MAX_CAN_IDS];
   uint16_t  num_can_ids;
+  // Demo mode
+  uint8_t   demo;                    // 1 = generate demo data instead of CAN
+  demo_Gen  demo_gen;
 } cfg_Config;
 
 // Error codes
