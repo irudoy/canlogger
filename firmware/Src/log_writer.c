@@ -4,6 +4,7 @@
 #include <string.h>
 #include "main.h"
 #include "mlvlg.h"
+#include "sd_write_dma.h"
 
 #define LED1 1
 #define LED2 2
@@ -11,7 +12,7 @@
 #define LED_OFF 1
 #define BLINK_INTERVAL_NORMAL 500
 #define BLINK_INTERVAL_ERROR 100
-#define MAX_FILE_SIZE (4 * 1024 * 1024)
+#define MAX_FILE_SIZE (512 * 1024 * 1024)
 #define MAX_ERROR_COUNT 5
 #define CONFIG_FILE_NAME "config.ini"
 #define CONFIG_BUF_SIZE 8192
@@ -230,6 +231,16 @@ void lw_get_status(lw_Status* out) {
   out->last_error_at = last_error_at;
   out->recovery_count = recovery_count;
   out->block_count = block_counter;
+
+  sd_ErrorCounters ec;
+  sd_get_error_counters(&ec);
+  out->sd_cmd_timeout   = ec.cmd_rsp_timeout;
+  out->sd_data_timeout  = ec.data_timeout;
+  out->sd_data_crc_fail = ec.data_crc_fail;
+  out->sd_dma_error     = ec.dma_error;
+  out->sd_err_callbacks = ec.total_callbacks;
+  out->sd_last_err_code = ec.last_error_code;
+  out->sd_hal_err_code  = ec.hal_error_code;
 }
 
 #define RECOVERY_DELAY_MS 1000
@@ -333,10 +344,89 @@ static void toggle_led(int led, uint32_t* last_tick, uint32_t interval) {
   }
 }
 
+static uint32_t fault_counter = 0;
+
+static void write_fault_file(FRESULT fault_res, const char* fault_at) {
+  f_close(&log_file_obj);
+  f_mount(0, "", 0);
+  HAL_Delay(500);
+  FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
+  if (res != FR_OK) return;
+
+  char fname[13];
+  snprintf(fname, sizeof(fname), "FAULT_%02lu.TXT",
+           (unsigned long)(fault_counter++ % 100));
+
+  FIL fault_file;
+  res = f_open(&fault_file, fname, FA_CREATE_ALWAYS | FA_WRITE);
+  if (res != FR_OK) return;
+
+  sd_ErrorCounters ec;
+  sd_get_error_counters(&ec);
+
+  DateTime dt;
+  get_current_datetime(&dt);
+  uint32_t uptime = HAL_GetTick();
+
+  int len = snprintf((char*)io_buf, IO_BUF_SIZE,
+    "=== CANLOGGER FAULT REPORT ===\r\n"
+    "Time: 20%02u-%02u-%02u %02u:%02u:%02u\r\n"
+    "Uptime: %lu ms (%lu s)\r\n"
+    "\r\n"
+    "--- Fault Info ---\r\n"
+    "FatFS error: FR_%d\r\n"
+    "Location: %s\r\n"
+    "Error count: %d (max %d)\r\n"
+    "Recovery count: %lu\r\n"
+    "File: %s\r\n"
+    "Files created: %lu\r\n"
+    "\r\n"
+    "--- SD/SDIO Error Counters ---\r\n"
+    "Total callbacks: %lu\r\n"
+    "CMD_RSP_TIMEOUT: %lu\r\n"
+    "CMD_CRC_FAIL:    %lu\r\n"
+    "DATA_TIMEOUT:    %lu\r\n"
+    "DATA_CRC_FAIL:   %lu\r\n"
+    "TX_UNDERRUN:     %lu\r\n"
+    "DMA_ERROR:       %lu\r\n"
+    "Other:           %lu\r\n"
+    "Last ErrorCode:  0x%08lX\r\n"
+    "HAL ErrorCode:   0x%08lX\r\n"
+    "\r\n"
+    "=== END FAULT REPORT ===\r\n",
+    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+    (unsigned long)uptime, (unsigned long)(uptime / 1000),
+    (int)fault_res, fault_at,
+    error_count, MAX_ERROR_COUNT,
+    (unsigned long)recovery_count,
+    log_file_name, (unsigned long)file_counter,
+    (unsigned long)ec.total_callbacks,
+    (unsigned long)ec.cmd_rsp_timeout,
+    (unsigned long)ec.cmd_crc_fail,
+    (unsigned long)ec.data_timeout,
+    (unsigned long)ec.data_crc_fail,
+    (unsigned long)ec.tx_underrun,
+    (unsigned long)ec.dma_error,
+    (unsigned long)ec.other_error,
+    (unsigned long)ec.last_error_code,
+    (unsigned long)ec.hal_error_code);
+
+  if (len > 0) {
+    UINT bw;
+    f_write(&fault_file, io_buf, (UINT)len, &bw);
+  }
+  f_close(&fault_file);
+}
+
+void lw_write_test_fault(void) {
+  set_error_state(FR_INT_ERR, "test");
+}
+
 static void set_error_state(FRESULT res, const char* at) {
   error_state = 1;
   last_error = res;
   last_error_at = at;
+  write_fault_file(res, at);
 }
 
 static FRESULT handle_error(FRESULT res, const char* at) {

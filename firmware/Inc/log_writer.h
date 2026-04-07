@@ -32,8 +32,19 @@ typedef struct {
   const char* last_error_at; // where last error occurred (e.g. "mount", "write")
   uint32_t    recovery_count; // successful write retries (GC stall recoveries)
   uint8_t     block_count; // data blocks written in current file
+  // SD/SDIO error counters (from HAL_SD_ErrorCallback ISR)
+  uint32_t    sd_cmd_timeout;   // CMD_RSP_TIMEOUT count
+  uint32_t    sd_data_timeout;  // DATA_TIMEOUT count
+  uint32_t    sd_data_crc_fail; // DATA_CRC_FAIL count
+  uint32_t    sd_dma_error;     // DMA error count
+  uint32_t    sd_err_callbacks; // total error callbacks
+  uint32_t    sd_last_err_code; // raw hsd->ErrorCode from last callback
+  uint32_t    sd_hal_err_code;  // current hsd.ErrorCode (includes CMD13 polling errors)
 } lw_Status;
 
 void lw_get_status(lw_Status* out);
+
+// Write a test FAULT file to SD (for diagnostics).
+void lw_write_test_fault(void);
 
 #endif // LOG_WRITER_H

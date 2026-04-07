@@ -14,8 +14,46 @@
 
 #include "bsp_driver_sd.h"
 #include "stm32f4xx_ll_sdmmc.h"
+#include "sd_write_dma.h"
 
 extern SD_HandleTypeDef hsd;
+
+/* --- SDIO error counters (incremented from ISR) --- */
+
+static volatile sd_ErrorCounters sd_err_counters;
+
+void HAL_SD_ErrorCallback(SD_HandleTypeDef *hsd)
+{
+  uint32_t err = hsd->ErrorCode;
+  sd_err_counters.total_callbacks++;
+  sd_err_counters.last_error_code = err;
+
+  if (err & HAL_SD_ERROR_CMD_RSP_TIMEOUT) sd_err_counters.cmd_rsp_timeout++;
+  if (err & HAL_SD_ERROR_CMD_CRC_FAIL)    sd_err_counters.cmd_crc_fail++;
+  if (err & HAL_SD_ERROR_DATA_TIMEOUT)     sd_err_counters.data_timeout++;
+  if (err & HAL_SD_ERROR_DATA_CRC_FAIL)    sd_err_counters.data_crc_fail++;
+  if (err & HAL_SD_ERROR_TX_UNDERRUN)      sd_err_counters.tx_underrun++;
+  if (err & HAL_SD_ERROR_DMA)              sd_err_counters.dma_error++;
+
+  uint32_t known = HAL_SD_ERROR_CMD_RSP_TIMEOUT | HAL_SD_ERROR_CMD_CRC_FAIL |
+                   HAL_SD_ERROR_DATA_TIMEOUT | HAL_SD_ERROR_DATA_CRC_FAIL |
+                   HAL_SD_ERROR_TX_UNDERRUN | HAL_SD_ERROR_DMA;
+  if (err & ~known) sd_err_counters.other_error++;
+}
+
+void sd_get_error_counters(sd_ErrorCounters* out)
+{
+  out->cmd_rsp_timeout = sd_err_counters.cmd_rsp_timeout;
+  out->cmd_crc_fail    = sd_err_counters.cmd_crc_fail;
+  out->data_timeout    = sd_err_counters.data_timeout;
+  out->data_crc_fail   = sd_err_counters.data_crc_fail;
+  out->tx_underrun     = sd_err_counters.tx_underrun;
+  out->dma_error       = sd_err_counters.dma_error;
+  out->other_error     = sd_err_counters.other_error;
+  out->total_callbacks = sd_err_counters.total_callbacks;
+  out->last_error_code = sd_err_counters.last_error_code;
+  out->hal_error_code  = hsd.ErrorCode;
+}
 
 /* Local copies of HAL-internal DMA callbacks (static in hal_sd.c) */
 static void SD_DMATransmitCplt_Fixed(DMA_HandleTypeDef *hdma)

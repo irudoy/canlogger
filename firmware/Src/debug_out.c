@@ -168,6 +168,7 @@ static void cmd_help(void) {
          "  ls        - list MLG files on SD\r\n"
          "  get <f>   - download file (use usb_get.py)\r\n"
          "  put <f> N - upload N bytes to file\r\n"
+         "  fault     - simulate fatal error, write FAULT file\r\n"
          "  stop      - close SD safely (before flash)\r\n");
 }
 
@@ -190,6 +191,14 @@ static void cmd_status(const ring_Buffer* rb) {
     printf(" rec=%lu", lws.recovery_count);
   }
   printf("\r\n");
+
+  if (lws.sd_err_callbacks > 0 || lws.sd_hal_err_code != 0) {
+    printf("sdio: cb=%lu ctmo=%lu dtmo=%lu dcrc=%lu dma=%lu last=0x%08lX hal=0x%08lX\r\n",
+           lws.sd_err_callbacks, lws.sd_cmd_timeout,
+           lws.sd_data_timeout, lws.sd_data_crc_fail,
+           lws.sd_dma_error, lws.sd_last_err_code,
+           lws.sd_hal_err_code);
+  }
 
   // Ring buffer
   printf("rb: count=%lu head=%lu tail=%lu\r\n",
@@ -359,6 +368,9 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
     cmd_config(init_ok ? cfg : NULL);
   } else if (strcmp(line, "ls") == 0) {
     cmd_ls();
+  } else if (strcmp(line, "fault") == 0) {
+    lw_write_test_fault();
+    printf("FAULT file written\r\n");
   } else if (strcmp(line, "stop") == 0) {
     extern volatile uint8_t lw_shutdown;
     printf("Stopping SD...\r\n");

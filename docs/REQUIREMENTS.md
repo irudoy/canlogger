@@ -67,19 +67,25 @@
 - [ ] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах
 - [ ] Поддержка extended CAN ID (29-bit) в конфиге и can_map
 - [ ] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
-- [ ] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md)):
+- [ ] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):
   - [ ] Проверять результат f_sync (сейчас игнорируется)
   - [ ] Recovery вместо fatal: close → remount → new file → продолжить запись
   - [ ] Уменьшить интервал f_sync (100 → 10 блоков)
   - [ ] Cooldown после recovery (пауза 1с, дать SD отдышаться)
   - [ ] Счётчик recovery в статусе (rec=N)
   - [ ] Исследовать: SDIO clock divider, питание SD, другая карта
+  - [ ] recover_file() блокирует main loop на 30с при вытащенной SD (f_mount → SD_CheckStatusWithTimeout)
 - [ ] Отладочный лог на SD — системные события, ошибки, сэмплы данных по условию
+- [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
 - [ ] Логирование статистики (принято/потеряно/записано фреймов)
 - [x] DMA для SDIO (reorder + PBURST_INC4, TX_UNDERRUN исправлен)
-- [ ] Исследовать CMD_RSP_TIMEOUT при DMA записи (периодический, не фатальный — вероятно CMD12 stop при busy карте)
+- [x] Исследовать CMD_RSP_TIMEOUT при DMA записи — см. [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)
+  - [x] Анализ: вероятно CMD12 stop при busy карте, см. docs/CMD_RSP_TIMEOUT.md
+  - [x] SDIO error counters через HAL_SD_ErrorCallback + hal.ErrorCode в CDC status
+  - [x] FAULT file на SD при фатальной ошибке (FAULT_NN.TXT с полной диагностикой)
 - [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
+- [ ] Настройка max_file_size через config.ini (сейчас хардкод 512 МБ)
 - [ ] GPS модуль — геопозиция + точное реальное время
 - [ ] Поле "Date" в MLG (U32 unix timestamp, display_style=MLG_DATE) — реальное время на таймлайне MegaLogViewer
 - [ ] Полнота реализации MLG — изучить спеку, проверить все ли возможности используются

@@ -461,17 +461,20 @@ firmware/
 │   ├── mlvlg.{h,c}        # MLVLG v2 encoder
 │   ├── config.{h,c}       # INI-парсер конфигурации
 │   ├── can_map.{h,c}      # CAN → field values маппинг
+│   ├── demo_gen.{h,c}     # Demo data generator (sine/ramp/square/noise/const)
+│   ├── cfg_limits.h        # Shared limits (CFG_MAX_FIELDS, CFG_MAX_CAN_IDS)
 │   └── ring_buf.{h,c}     # Lock-free SPSC ring buffer
 ├── Src/                    # HAL-зависимые обёртки
 │   ├── main.c              # Init, main loop, glue
 │   ├── can_drv.c           # CAN HAL → ring_buf
-│   ├── sd_write.c          # FatFS обёртка
-│   ├── led.c               # LED индикация
+│   ├── log_writer.c        # SD: config read, MLG write, file rotation, error recovery, FAULT file
+│   ├── sd_write_dma.c      # BSP override: DMA write fix, SDIO error counters
+│   ├── debug_out.c         # USB CDC CLI (help/status/stream/config/ls/get/put)
 │   └── [CubeMX files]
 ├── Inc/                    # Headers для Src/
 │   ├── can_drv.h
-│   ├── sd_write.h
-│   ├── led.h
+│   ├── log_writer.h
+│   ├── sd_write_dma.h
 │   └── [CubeMX headers]
 ├── test/                   # Host-тесты
 │   ├── unity/
