@@ -12,6 +12,7 @@ Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
 Hardware and wiring: `docs/HARDWARE.md`
 Debug USB CDC output: `docs/DEBUG.md`
+Schematic conventions: `docs/SCHEMATIC_CONVENTIONS.md`
 
 ## Repository Structure
 
@@ -93,7 +94,7 @@ cd firmware && make test
 See `docs/HARDWARE.md` for full pin assignments, SWD wiring, LED states, hat design.
 
 - MCU: STM32F407VET6, 168MHz. Board: STM32_F4VE V2.0
-- SD: SDIO 1-bit mode, FatFS
+- SD: SDIO 4-bit mode, FatFS
 - CAN1: PB8 (RX), PB9 (TX) — configurable bitrate (default 500 kbit/s)
 - CAN input: modified MCP2515 board (TJA1050 transceiver only, SO→TX, SI→RX)
 - USB: PA11/PA12 — USB CDC debug output (Virtual COM Port, `/dev/cu.usbmodemXXXX`)
