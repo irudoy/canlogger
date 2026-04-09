@@ -93,7 +93,28 @@
   - [x] Анализ: вероятно CMD12 stop при busy карте, см. docs/CMD_RSP_TIMEOUT.md
   - [x] SDIO error counters через HAL_SD_ErrorCallback + hal.ErrorCode в CDC status
   - [x] FAULT file на SD при фатальной ошибке (FAULT_NN.TXT с полной диагностикой)
+- [ ] **SD writer decoupling — миграция на FreeRTOS**
+      (см. [SD_WRITER_DECOUPLING.md](SD_WRITER_DECOUPLING.md)):
+  - корневая причина: blocking `SD_write` в main loop → GC stalls до 710 мс
+    останавливают весь pipeline → **~12% потеря sample** на 2-часовом тесте
+    (64 U16 @ 250 Hz: expected 4000 fps, actual 3509 fps)
+  - на max-нагрузке 128 U16 @ 1 kHz потеря пропорционально растянется
+  - референс: rusEFI `mmc_card.cpp` — выделенный SD thread с приоритетом
+    `NORMALPRIO-1`, `SDC_NICE_WAITING=TRUE`, main loop не блокируется
+  - план: CubeMX → Middleware → FREERTOS CMSIS_V2 → выделить
+    `task_sd` (osPriorityBelowNormal) с очередью MLG records;
+    `task_log` (osPriorityNormal) собирает snapshot → queue;
+    CAN RX + can_map в высокоприоритетном task
+  - FatFS должен быть reentrant (`FF_FS_REENTRANT=1`)
+  - `SD_status` retry: `HAL_Delay` → `osDelay` (yield-friendly)
+  - финальная проверка: `docs/STRESS_TEST_128U16_PLAN.md`
 - [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
+- [ ] `RING_BUF_SIZE` перед production deploy 1 Mbit × 2 CAN:
+  - текущий размер 1024 slot (16 KB) был подобран под cansult (60 fps)
+  - при 2× 1 Mbit (~18k fps peak) 1024 покрывает только 57 мс — первый же GC stall (до 674 мс) потеряет ~90% фреймов
+  - нужно поднять до ≥ 4096 (64 KB, покрывает 225 мс @ 18k fps) — минимум
+  - комфорт: 8192 (128 KB, 450 мс) — не влезает в main SRAM без перераспределения
+  - рассмотреть перенос `ring_Buffer` в CCM SRAM 64 KB (`0x10000000`): он не участвует в DMA, так что ограничение CCM не мешает; освободит main SRAM под io_buf / SDIO DMA
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
 - [ ] Настройка max_file_size через config.ini (сейчас хардкод 512 МБ)
 - [ ] GPS модуль — геопозиция + точное реальное время
