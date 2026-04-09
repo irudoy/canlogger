@@ -53,6 +53,12 @@ void sd_get_error_counters(sd_ErrorCounters* out)
   out->total_callbacks = sd_err_counters.total_callbacks;
   out->last_error_code = sd_err_counters.last_error_code;
   out->hal_error_code  = hsd.ErrorCode;
+  out->w_state_not_ready = sd_err_counters.w_state_not_ready;
+  out->w_cmd13_error     = sd_err_counters.w_cmd13_error;
+  out->w_cmd13_timeout   = sd_err_counters.w_cmd13_timeout;
+  out->w_dma_start_fail  = sd_err_counters.w_dma_start_fail;
+  out->w_cmd_write_fail  = sd_err_counters.w_cmd_write_fail;
+  out->w_addr_oob        = sd_err_counters.w_addr_oob;
 }
 
 /* Local copies of HAL-internal DMA callbacks (static in hal_sd.c) */
@@ -80,7 +86,10 @@ uint8_t BSP_SD_WriteBlocks_DMA(uint32_t *pData, uint32_t WriteAddr, uint32_t Num
   uint32_t errorstate;
   uint32_t add = WriteAddr;
 
-  if (hsd.State != HAL_SD_STATE_READY) return MSD_ERROR;
+  if (hsd.State != HAL_SD_STATE_READY) {
+    sd_err_counters.w_state_not_ready++;
+    return MSD_ERROR;
+  }
 
   hsd.ErrorCode = HAL_SD_ERROR_NONE;
 
@@ -94,16 +103,23 @@ uint8_t BSP_SD_WriteBlocks_DMA(uint32_t *pData, uint32_t WriteAddr, uint32_t Num
     uint32_t t0 = HAL_GetTick();
     for (;;) {
       HAL_SD_CardStateTypeDef cs = HAL_SD_GetCardState(&hsd);
-      if (hsd.ErrorCode != HAL_SD_ERROR_NONE) return MSD_ERROR;  // CMD13 failed
+      if (hsd.ErrorCode != HAL_SD_ERROR_NONE) {
+        sd_err_counters.w_cmd13_error++;
+        return MSD_ERROR;
+      }
       if (cs == HAL_SD_CARD_TRANSFER) break;
       if ((HAL_GetTick() - t0) > SDMMC_DATATIMEOUT) {
         hsd.ErrorCode |= HAL_SD_ERROR_TIMEOUT;
+        sd_err_counters.w_cmd13_timeout++;
         return MSD_ERROR;
       }
     }
   }
 
-  if ((add + NumOfBlocks) > hsd.SdCard.LogBlockNbr) return MSD_ERROR;
+  if ((add + NumOfBlocks) > hsd.SdCard.LogBlockNbr) {
+    sd_err_counters.w_addr_oob++;
+    return MSD_ERROR;
+  }
 
   hsd.State = HAL_SD_STATE_BUSY;
   hsd.Instance->DCTRL = 0U;
@@ -133,6 +149,7 @@ uint8_t BSP_SD_WriteBlocks_DMA(uint32_t *pData, uint32_t WriteAddr, uint32_t Num
     hsd.ErrorCode |= HAL_SD_ERROR_DMA;
     hsd.State = HAL_SD_STATE_READY;
     hsd.Context = SD_CONTEXT_NONE;
+    sd_err_counters.w_dma_start_fail++;
     return MSD_ERROR;
   }
 
@@ -149,6 +166,7 @@ uint8_t BSP_SD_WriteBlocks_DMA(uint32_t *pData, uint32_t WriteAddr, uint32_t Num
     hsd.ErrorCode |= errorstate;
     hsd.State = HAL_SD_STATE_READY;
     hsd.Context = SD_CONTEXT_NONE;
+    sd_err_counters.w_cmd_write_fail++;
     return MSD_ERROR;
   }
 

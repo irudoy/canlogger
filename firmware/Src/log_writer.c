@@ -27,6 +27,7 @@ static char log_file_name[13];
 static uint32_t last_tick_led1 = 0;
 static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
+static int paused = 0;
 static uint32_t file_counter = 0;
 static int error_count = 0;
 static uint32_t recovery_count = 0;
@@ -144,7 +145,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
 }
 
 FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
-  if (error_state) return FR_OK;
+  if (error_state || paused) return FR_OK;
 
   uint32_t now = HAL_GetTick();
   if (now - last_log_tick < log_interval_ms) {
@@ -175,7 +176,14 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
     if (res != FR_OK) return res;
     res = f_sync(&log_file_obj);
     if (res != FR_OK) {
-      return handle_error(res, "sync");
+      // Sync failure means file object state is suspect — try recovery
+      // (remount + reopen) rather than just counting errors until fatal.
+      // NOTE: recovery opens a NEW file, so any data written to the old
+      // file since its last successful sync is effectively lost (may or
+      // may not be on disk depending on when the failure occurred).
+      // Trade-off: continued operation over data completeness.
+      FRESULT rec = recover_file();
+      if (rec != FR_OK) return handle_error(rec, "sync");
     }
   }
 
@@ -195,13 +203,24 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
 }
 
 void lw_stop(void) {
+  if (!paused) {
+    flush_io_buf();
+    f_sync(&log_file_obj);
+    f_truncate(&log_file_obj);
+    f_close(&log_file_obj);
+  }
+  f_mount(0, "", 0);
+  set_led(LED1, LED_OFF);
+  set_led(LED2, LED_ON);
+}
+
+void lw_pause(void) {
+  if (paused || error_state) return;
   flush_io_buf();
   f_sync(&log_file_obj);
   f_truncate(&log_file_obj);
   f_close(&log_file_obj);
-  f_mount(0, "", 0);
-  set_led(LED1, LED_OFF);
-  set_led(LED2, LED_ON);
+  paused = 1;
 }
 
 void lw_update_leds(void) {
@@ -219,7 +238,7 @@ int lw_is_error(void) {
 
 void lw_get_status(lw_Status* out) {
   out->file_name   = log_file_name;
-  out->file_size   = error_state ? 0 : f_tell(&log_file_obj);
+  out->file_size   = (error_state || paused) ? 0 : f_tell(&log_file_obj);
   out->file_count  = file_counter;
   out->error_count = error_count;
   out->error_state = error_state;
@@ -240,15 +259,13 @@ void lw_get_status(lw_Status* out) {
 }
 
 #define RECOVERY_DELAY_MS 1000
-
-#define MAX_RECOVERY_COUNT 5
+#define MAX_RECOVERY_COUNT 20  // cap to detect persistent SD failure
 
 static FRESULT recover_file(void) {
   recovery_count++;
   if (recovery_count >= MAX_RECOVERY_COUNT) {
-    return FR_DISK_ERR;  // will trigger error_state via handle_error
+    return FR_DISK_ERR;  // persistent failure → handle_error → fault state
   }
-
   f_close(&log_file_obj);
   // Remount SD — card may need full re-init after GC stall
   f_mount(0, "", 0);

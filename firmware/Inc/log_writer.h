@@ -15,6 +15,11 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms);
 // Flush and close.
 void lw_stop(void);
 
+// Pause logging: flush, close log file, keep SD mounted.
+// Used during CDC file upload to avoid interleaving writes on same card.
+// Logger does not resume automatically — expected to be followed by reboot.
+void lw_pause(void);
+
 // LED update (call every loop iteration).
 void lw_update_leds(void);
 

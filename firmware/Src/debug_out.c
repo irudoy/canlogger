@@ -1,9 +1,14 @@
 #include "debug_out.h"
 #include "usbd_cdc_if.h"
+#include "sd_write_dma.h"
 #include "stm32f4xx_hal.h"
 #include "fatfs.h"
 #include <stdio.h>
 #include <string.h>
+
+// CubeMX-generated USB CDC RX buffer — used to re-arm reception after flush
+extern uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
 #define CDC_TX_BUF_SIZE 640
 static uint8_t cdc_tx_buf[CDC_TX_BUF_SIZE];
@@ -17,13 +22,21 @@ static char cmd_buf[CMD_BUF_SIZE];
 static uint8_t cmd_pos = 0;
 static volatile uint8_t cmd_ready = 0;
 
-// --- File upload state ---
+// --- File upload state (streaming) ---
+// put_buf is a staging area filled from USB ISR, drained by main loop to SD.
+// Flow control: when buf near-full, USB reception is stalled (not re-armed)
+// so host naturally NAKs and waits. Main loop re-arms after SD flush.
 #define PUT_BUF_SIZE 4096
-static uint8_t put_buf[PUT_BUF_SIZE];
-static volatile uint32_t put_expected = 0;   // expected file size
-static volatile uint32_t put_received = 0;   // bytes received so far
+static uint8_t put_buf[PUT_BUF_SIZE] __attribute__((aligned(4)));
+static volatile uint32_t put_head = 0;       // write position in put_buf (ISR)
+static volatile uint32_t put_received = 0;   // total bytes received from USB
+static volatile uint32_t put_expected = 0;   // total bytes expected
 static volatile uint8_t put_active = 0;      // 1 = receiving file data
-static char put_filename[13];                 // 8.3 filename
+volatile uint8_t put_stall = 0;              // 1 = USB RX stalled, main must re-arm
+static uint8_t put_err = 0;                  // sticky error during streaming
+static char put_filename[13];                // 8.3 filename
+static FIL put_file;
+static uint8_t put_file_open = 0;
 
 // Flush buffer over USB CDC.
 // wait=1: retry up to 50ms (for command responses). wait=0: drop if busy (for stream).
@@ -121,13 +134,26 @@ void debug_out_tick(uint32_t frames_processed, uint16_t num_fields, int init_ok)
 static uint8_t echo_buf[CMD_BUF_SIZE + 2];
 
 void debug_cmd_receive(const uint8_t* buf, uint32_t len) {
-  // File upload raw mode — no echo, no command parsing
+  // File upload raw mode — no echo, no command parsing.
+  // Copy bytes into put_buf. If buf fills or we received all expected bytes,
+  // set put_stall=1 — CDC_Receive_FS will NOT re-arm, host stalls (NAK).
+  // Main loop drains put_buf to SD and re-arms reception.
   if (put_active) {
-    for (uint32_t i = 0; i < len && put_received < put_expected; i++) {
-      if (put_received < PUT_BUF_SIZE) {
-        put_buf[put_received] = buf[i];
-      }
-      put_received++;
+    uint32_t space = PUT_BUF_SIZE - put_head;
+    uint32_t remaining = put_expected - put_received;
+    uint32_t to_copy = len;
+    if (to_copy > space) to_copy = space;
+    if (to_copy > remaining) to_copy = remaining;
+
+    if (to_copy > 0) {
+      memcpy(put_buf + put_head, buf, to_copy);
+      put_head += to_copy;
+      put_received += to_copy;
+    }
+
+    // Stall if buf can't hold next 64-byte USB packet, or done receiving.
+    if (put_head + 64 > PUT_BUF_SIZE || put_received >= put_expected) {
+      put_stall = 1;
     }
     return;
   }
@@ -198,6 +224,17 @@ static void cmd_status(const ring_Buffer* rb) {
            lws.sd_data_timeout, lws.sd_data_crc_fail,
            lws.sd_dma_error, lws.sd_last_err_code,
            lws.sd_hal_err_code);
+  }
+
+  // Fine-grained early-return counters in BSP_SD_WriteBlocks_DMA
+  sd_ErrorCounters ec;
+  sd_get_error_counters(&ec);
+  uint32_t fgsum = ec.w_state_not_ready + ec.w_cmd13_error + ec.w_cmd13_timeout +
+                   ec.w_dma_start_fail + ec.w_cmd_write_fail + ec.w_addr_oob;
+  if (fgsum > 0) {
+    printf("sd_w: nr=%lu c13e=%lu c13t=%lu dma=%lu cmd=%lu oob=%lu\r\n",
+           ec.w_state_not_ready, ec.w_cmd13_error, ec.w_cmd13_timeout,
+           ec.w_dma_start_fail, ec.w_cmd_write_fail, ec.w_addr_oob);
   }
 
   // Ring buffer
@@ -313,31 +350,51 @@ static void cmd_get(const char* filename) {
 // --- Command poll (called from main loop) ---
 
 void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
-  // Check if file upload is complete
-  if (put_active && put_received >= put_expected) {
-    put_active = 0;
+  // Streaming file upload: flush put_buf to SD when stalled or done.
+  // Since put_stall=1 causes CDC NOT to re-arm reception, ISR cannot touch
+  // put_buf while we're here — so no locking needed.
+  if (put_active && put_stall) {
     cdc_wait = 1;
 
-    // Stop logging before writing config
-    extern volatile uint8_t lw_shutdown;
-    lw_shutdown = 1;
-    HAL_Delay(100);  // let log_writer close file
-
-    FIL file;
-    FRESULT res = f_open(&file, put_filename, FA_CREATE_ALWAYS | FA_WRITE);
-    if (res != FR_OK) {
-      printf("ERR:open %d\r\n", res);
-    } else {
+    if (put_head > 0 && !put_err) {
       UINT bw;
-      uint32_t to_write = put_expected < PUT_BUF_SIZE ? put_expected : PUT_BUF_SIZE;
-      res = f_write(&file, put_buf, to_write, &bw);
-      f_close(&file);
-      if (res != FR_OK) {
+      FRESULT res = f_write(&put_file, put_buf, put_head, &bw);
+      if (res != FR_OK || bw != put_head) {
+        put_err = 1;
         printf("ERR:write %d\r\n", res);
-      } else {
-        printf("OK %lu\r\n", (uint32_t)bw);
+      }
+      put_head = 0;
+    }
+
+    if (put_received >= put_expected || put_err) {
+      // Done (or errored) — close file and finalize
+      if (put_file_open) {
+        f_close(&put_file);
+        put_file_open = 0;
+      }
+      uint8_t success = !put_err;
+      put_active = 0;
+      put_stall = 0;
+      if (success) {
+        printf("OK %lu\r\n", (uint32_t)put_received);
         printf("Reboot to apply.\r\n");
       }
+      put_err = 0;
+      // Re-arm reception so CLI commands work again.
+      // Briefly mask USB IRQ to avoid racing with a concurrent RX callback
+      // that could touch the endpoint state mid-setup.
+      HAL_NVIC_DisableIRQ(OTG_FS_IRQn);
+      USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+      USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+      HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
+      // Logger stays paused — user will reboot to apply new config
+    } else {
+      // More to receive — re-arm USB reception
+      put_stall = 0;
+      HAL_NVIC_DisableIRQ(OTG_FS_IRQn);
+      USBD_CDC_SetRxBuffer(&hUsbDeviceFS, UserRxBufferFS);
+      USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+      HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
     }
     cdc_wait = 0;
   }
@@ -378,7 +435,7 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
   } else if (strncmp(line, "get ", 4) == 0) {
     cmd_get(line + 4);
   } else if (strncmp(line, "put ", 4) == 0) {
-    // Parse: put FILENAME SIZE
+    // Parse: put FILENAME SIZE. Streaming — no upper size limit.
     char* space = strchr(line + 4, ' ');
     if (!space) {
       printf("usage: put FILENAME SIZE\r\n");
@@ -389,15 +446,33 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
       const char* sp = space + 1;
       while (*sp >= '0' && *sp <= '9') { size = size * 10 + (*sp - '0'); sp++; }
 
-      if (size == 0 || size > PUT_BUF_SIZE) {
-        printf("ERR:size (max %d)\r\n", PUT_BUF_SIZE);
+      if (size == 0) {
+        printf("ERR:size\r\n");
       } else {
+        // Pause logger BEFORE opening put_file. Streaming put can take
+        // seconds for large files; interleaving with lw_tick writes would
+        // cause FAT-table contention on the same SD → CMD_RSP_TIMEOUT.
+        // lw_pause flushes & closes the log file but keeps SD mounted so
+        // we can f_open put_file on the same volume. User must reboot
+        // after upload to apply config anyway.
+        if (init_ok) lw_pause();
+
         strncpy(put_filename, fname, sizeof(put_filename) - 1);
         put_filename[sizeof(put_filename) - 1] = '\0';
-        put_expected = size;
-        put_received = 0;
-        put_active = 1;
-        printf("READY %lu\r\n", size);
+
+        FRESULT res = f_open(&put_file, put_filename, FA_CREATE_ALWAYS | FA_WRITE);
+        if (res != FR_OK) {
+          printf("ERR:open %d\r\n", res);
+        } else {
+          put_file_open = 1;
+          put_expected = size;
+          put_received = 0;
+          put_head = 0;
+          put_stall = 0;
+          put_err = 0;
+          put_active = 1;
+          printf("READY %lu\r\n", size);
+        }
       }
     }
   } else {
