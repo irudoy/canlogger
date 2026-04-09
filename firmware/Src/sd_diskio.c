@@ -22,6 +22,11 @@
 
 /* USER CODE BEGIN firstSection */
 /* can be used to modify / undefine following code or add new definitions */
+#include "sd_diskio_counters.h"
+static sd_sdio_Counters g_sd_sdio_counters;
+void sd_sdio_get_counters(sd_sdio_Counters* out) {
+  *out = g_sd_sdio_counters;
+}
 /* USER CODE END firstSection*/
 
 /* Includes ------------------------------------------------------------------*/
@@ -110,7 +115,14 @@ const Diskio_drvTypeDef  SD_Driver =
 };
 
 /* USER CODE BEGIN beforeFunctionSection */
-/* can be used to modify / undefine following code or add new code */
+/* Rename SD_status so we can instrument it in lastSection.
+ * SD_status is called by FatFS validate() on every f_sync/f_write/etc.
+ * A transient CMD13 failure here makes validate return FR_INVALID_OBJECT
+ * without any SD_write being issued — prime suspect for f_sync failures.
+ * NOTE: must be done here (before SD_status definition), NOT in
+ * beforeReadSection which comes after the definition. */
+#define SD_status SD_status_deprecated
+DSTATUS SD_status(BYTE);  /* expands to SD_status_deprecated, silences -Wmissing-declarations */
 /* USER CODE END beforeFunctionSection */
 
 /* Private functions ---------------------------------------------------------*/
@@ -296,7 +308,17 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
 }
 
 /* USER CODE BEGIN beforeWriteSection */
-/* can be used to modify previous code / undefine following code / add new code */
+/* Rename the CubeMX-generated SD_write so we can install an instrumented
+ * replacement in lastSection. The renamed function becomes dead code (DCE),
+ * and the SD_Driver struct above (which was emitted before this #define)
+ * still references SD_write — which, thanks to the #undef in lastSection,
+ * resolves to our new instrumented version.
+ * Rationale: SD_write body is outside USER CODE markers and cannot be edited
+ * directly. This trick keeps CubeMX regeneration safe. */
+#define SD_write SD_write_deprecated
+/* Forward prototype for the renamed stock function (silences
+ * -Wmissing-declarations on its definition below). */
+DRESULT SD_write(BYTE, const BYTE*, DWORD, UINT);
 /* USER CODE END beforeWriteSection */
 /**
   * @brief  Writes Sector(s)
@@ -515,5 +537,148 @@ void BSP_SD_ErrorCallback(void)
 /* USER CODE END ErrorAbortCallbacks */
 
 /* USER CODE BEGIN lastSection */
-/* can be used to modify / undefine previous code or add new code */
+extern SD_HandleTypeDef hsd;  /* defined in main.c */
+
+/* Instrumented replacement for SD_status. Called by FatFS validate() on
+ * every file operation (f_sync/f_write/f_tell/...). Counts invocations
+ * and failures (when the card isn't in TRANSFER state). */
+#undef SD_status
+DSTATUS SD_status(BYTE lun)
+{
+  (void)lun;
+  g_sd_sdio_counters.status_calls++;
+  uint8_t cs = BSP_SD_GetCardState();
+  if (cs == MSD_OK) {
+    Stat &= ~STA_NOINIT;
+  } else {
+    Stat = STA_NOINIT;
+    g_sd_sdio_counters.status_fail_not_ready++;
+    /* Snapshot the raw HAL state for diagnostics. */
+    g_sd_sdio_counters.last_card_state_raw = (uint32_t)HAL_SD_GetCardState(&hsd);
+  }
+  return Stat;
+}
+
+/* Instrumented replacement for SD_write. See beforeWriteSection for the
+ * rename trick. This function is wired into SD_Driver (the stock struct
+ * at the top of this file references the symbol SD_write, which now
+ * resolves to the definition below instead of the renamed deprecated one). */
+#undef SD_write
+DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
+{
+  DRESULT res = RES_ERROR;
+  uint32_t timeout;
+  uint32_t t_start = HAL_GetTick();
+  uint8_t ret = 0;
+  int i;
+
+  g_sd_sdio_counters.total_writes++;
+
+  WriteStatus = 0;
+
+  if (SD_CheckStatusWithTimeout(SD_TIMEOUT) < 0)
+  {
+    g_sd_sdio_counters.err_enter_busy++;
+    g_sd_sdio_counters.last_err_sector = sector;
+    g_sd_sdio_counters.last_err_count = count;
+    g_sd_sdio_counters.last_err_tick = t_start;
+    goto out;
+  }
+
+  if (!((uint32_t)buff & 0x3))
+  {
+    /* Fast path: DMA directly from caller buffer. */
+    if (BSP_SD_WriteBlocks_DMA((uint32_t*)buff,
+                               (uint32_t)sector,
+                               count) == MSD_OK)
+    {
+      /* Wait for Tx complete callback (WriteStatus=1) or timeout. */
+      timeout = HAL_GetTick();
+      while ((WriteStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT)) { }
+      if (WriteStatus == 0)
+      {
+        g_sd_sdio_counters.err_tx_cplt_timeout++;
+        g_sd_sdio_counters.last_err_sector = sector;
+        g_sd_sdio_counters.last_err_count = count;
+        g_sd_sdio_counters.last_err_tick = t_start;
+        goto out;
+      }
+      WriteStatus = 0;
+      /* Wait for card to return to TRANSFER state. */
+      timeout = HAL_GetTick();
+      while ((HAL_GetTick() - timeout) < SD_TIMEOUT)
+      {
+        if (BSP_SD_GetCardState() == SD_TRANSFER_OK)
+        {
+          res = RES_OK;
+          break;
+        }
+      }
+      if (res != RES_OK)
+      {
+        g_sd_sdio_counters.err_cardstate_timeout++;
+        g_sd_sdio_counters.last_err_sector = sector;
+        g_sd_sdio_counters.last_err_count = count;
+        g_sd_sdio_counters.last_err_tick = t_start;
+      }
+    }
+    else
+    {
+      g_sd_sdio_counters.err_dma_start++;
+      g_sd_sdio_counters.last_err_sector = sector;
+      g_sd_sdio_counters.last_err_count = count;
+      g_sd_sdio_counters.last_err_tick = t_start;
+    }
+  }
+  else
+  {
+    /* Slow path: memcpy into scratch buffer, 1 sector at a time. */
+    g_sd_sdio_counters.used_scratch_path++;
+    for (i = 0; i < (int)count; i++)
+    {
+      WriteStatus = 0;
+      memcpy((void*)scratch, (const void*)buff, BLOCKSIZE);
+      buff += BLOCKSIZE;
+
+      ret = BSP_SD_WriteBlocks_DMA((uint32_t*)scratch,
+                                   (uint32_t)sector++, 1);
+      if (ret == MSD_OK)
+      {
+        timeout = HAL_GetTick();
+        while ((WriteStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT)) { }
+        if (WriteStatus == 0)
+        {
+          g_sd_sdio_counters.err_slow_tx_cplt++;
+          g_sd_sdio_counters.last_err_sector = sector - 1;
+          g_sd_sdio_counters.last_err_count = 1;
+          g_sd_sdio_counters.last_err_tick = t_start;
+          break;
+        }
+      }
+      else
+      {
+        g_sd_sdio_counters.err_slow_dma_start++;
+        g_sd_sdio_counters.last_err_sector = sector - 1;
+        g_sd_sdio_counters.last_err_count = 1;
+        g_sd_sdio_counters.last_err_tick = t_start;
+        break;
+      }
+    }
+    if ((i == (int)count) && (ret == MSD_OK))
+    {
+      res = RES_OK;
+    }
+  }
+
+out:
+  {
+    uint32_t dt = HAL_GetTick() - t_start;
+    g_sd_sdio_counters.last_latency_ms = dt;
+    if (dt > g_sd_sdio_counters.max_latency_ms)
+    {
+      g_sd_sdio_counters.max_latency_ms = dt;
+    }
+  }
+  return res;
+}
 /* USER CODE END lastSection */

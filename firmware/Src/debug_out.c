@@ -1,6 +1,7 @@
 #include "debug_out.h"
 #include "usbd_cdc_if.h"
 #include "sd_write_dma.h"
+#include "sd_diskio_counters.h"
 #include "stm32f4xx_hal.h"
 #include "fatfs.h"
 #include <stdio.h>
@@ -214,7 +215,9 @@ static void cmd_status(const ring_Buffer* rb) {
     printf(" last=FR_%d@%s", (int)lws.last_error, lws.last_error_at);
   }
   if (lws.recovery_count > 0) {
-    printf(" rec=%lu", lws.recovery_count);
+    printf(" rec=%lu lastrec=FR_%d@%s",
+           lws.recovery_count,
+           (int)lws.last_rec_res, lws.last_rec_at);
   }
   printf("\r\n");
 
@@ -235,6 +238,27 @@ static void cmd_status(const ring_Buffer* rb) {
     printf("sd_w: nr=%lu c13e=%lu c13t=%lu dma=%lu cmd=%lu oob=%lu\r\n",
            ec.w_state_not_ready, ec.w_cmd13_error, ec.w_cmd13_timeout,
            ec.w_dma_start_fail, ec.w_cmd_write_fail, ec.w_addr_oob);
+  }
+
+  // SD_write() instrumentation in sd_diskio.c (pinpoints which of the
+  // 4 failure points inside SD_write is firing during FR_DISK_ERR).
+  sd_sdio_Counters sc;
+  sd_sdio_get_counters(&sc);
+  printf("sdw: tot=%lu lat=%lu/%lu scratch=%lu\r\n",
+         sc.total_writes, sc.last_latency_ms, sc.max_latency_ms,
+         sc.used_scratch_path);
+  printf("sdst: calls=%lu fail=%lu last_raw=%lu\r\n",
+         sc.status_calls, sc.status_fail_not_ready, sc.last_card_state_raw);
+  uint32_t sdw_errsum = sc.err_enter_busy + sc.err_dma_start +
+                        sc.err_tx_cplt_timeout + sc.err_cardstate_timeout +
+                        sc.err_slow_dma_start + sc.err_slow_tx_cplt;
+  if (sdw_errsum > 0) {
+    printf("sdw_err: eb=%lu dma=%lu txto=%lu csto=%lu sdma=%lu stxto=%lu"
+           " @sec=%lu cnt=%lu tick=%lu\r\n",
+           sc.err_enter_busy, sc.err_dma_start,
+           sc.err_tx_cplt_timeout, sc.err_cardstate_timeout,
+           sc.err_slow_dma_start, sc.err_slow_tx_cplt,
+           sc.last_err_sector, sc.last_err_count, sc.last_err_tick);
   }
 
   // Ring buffer

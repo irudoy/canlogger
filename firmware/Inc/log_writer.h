@@ -35,6 +35,8 @@ typedef struct {
   int         error_state; // 1 = fatal error
   FRESULT     last_error;  // last FatFS error code
   const char* last_error_at; // where last error occurred (e.g. "mount", "write")
+  FRESULT     last_rec_res;  // FRESULT that triggered most recent recovery
+  const char* last_rec_at;   // where last recovery was triggered from ("sync"|"write")
   uint32_t    recovery_count; // successful write retries (GC stall recoveries)
   uint8_t     block_count; // data blocks written in current file
   // SD/SDIO error counters (from HAL_SD_ErrorCallback ISR)

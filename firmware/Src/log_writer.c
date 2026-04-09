@@ -33,6 +33,10 @@ static int error_count = 0;
 static uint32_t recovery_count = 0;
 static FRESULT last_error = FR_OK;
 static const char* last_error_at = "";
+// Reason for the most recent recover_file() trigger (even if recovery
+// succeeded). Lets us tell f_sync failures apart from f_write failures.
+static FRESULT last_rec_res = FR_OK;
+static const char* last_rec_at = "";
 static uint8_t block_counter = 0;
 static uint32_t last_log_tick = 0;
 
@@ -182,6 +186,8 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
       // file since its last successful sync is effectively lost (may or
       // may not be on disk depending on when the failure occurred).
       // Trade-off: continued operation over data completeness.
+      last_rec_res = res;
+      last_rec_at = "sync";
       FRESULT rec = recover_file();
       if (rec != FR_OK) return handle_error(rec, "sync");
     }
@@ -244,6 +250,8 @@ void lw_get_status(lw_Status* out) {
   out->error_state = error_state;
   out->last_error = last_error;
   out->last_error_at = last_error_at;
+  out->last_rec_res = last_rec_res;
+  out->last_rec_at = last_rec_at;
   out->recovery_count = recovery_count;
   out->block_count = block_counter;
 
@@ -290,6 +298,8 @@ static FRESULT flush_io_buf(void) {
   // Write failed — file object may be invalid, try recovery
   uint16_t saved_pos = io_pos;
   io_pos = 0;  // clear before recovery (create_new_log_file writes header)
+  last_rec_res = res;
+  last_rec_at = "write";
   res = recover_file();
   if (res != FR_OK) return handle_error(res, "recovery");
   // Retry writing the lost buffer into the new file
