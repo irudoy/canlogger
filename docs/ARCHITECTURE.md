@@ -469,12 +469,14 @@ firmware/
 │   ├── can_drv.c           # CAN HAL → ring_buf
 │   ├── log_writer.c        # SD: config read, MLG write, file rotation, error recovery, FAULT file
 │   ├── sd_write_dma.c      # BSP override: DMA write fix, SDIO error counters
+│   ├── sd_diskio.c         # CubeMX-generated + instrumented SD_status (retry loop) and SD_write wrappers
 │   ├── debug_out.c         # USB CDC CLI (help/status/stream/config/ls/get/put)
 │   └── [CubeMX files]
 ├── Inc/                    # Headers для Src/
 │   ├── can_drv.h
 │   ├── log_writer.h
 │   ├── sd_write_dma.h
+│   ├── sd_diskio_counters.h # sd_sdio_Counters (per-failure-point diagnostics)
 │   └── [CubeMX headers]
 ├── test/                   # Host-тесты
 │   ├── unity/

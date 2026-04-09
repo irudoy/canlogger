@@ -44,14 +44,23 @@ Commands:
 ### `status`
 
 ```
-uptime=10s frames=221 fields=13 init=1 stream=0
-file=06041100.MLG size=5942 files=1 blocks=207 err=0/0
-rb: count=0 head=29 tail=29
-sd: 15708480KB free / 15712248KB total
-can: 2 ids
-  0x640[8] 11ms ago: 08 AF 07 4F 00 00 00 00
-  0x665[8] 70ms ago: 02 FF FF FF FF FF FF FF
+uptime=316s frames=1125808 fields=64 init=1 stream=0
+file=10012900.MLG size=9363600 files=1 blocks=218 err=0/0
+sdw: tot=7461 lat=12/86 scratch=1548
+sdst: calls=13180 fail=6 rescued=6 hard=0 maxret=4ms last_raw=0
+rb: count=0 head=432 tail=432
+sd: 23789888KB free / 31150208KB total
+can: 16 ids
+  0xD00[8] 1ms ago: 28 10 C7 13 4C 04 5A 14
+  ...
 ```
+
+Дополнительные строки появляются по ситуации:
+
+- `sdio: cb=... ctmo=... dtmo=... dcrc=... dma=... last=... hal=...` — показывается только если хотя бы раз сработал `HAL_SD_ErrorCallback` или `hsd.ErrorCode != 0`.
+- `sd_w: nr=... c13e=... c13t=... dma=... cmd=... oob=...` — fine-grained счётчики early-return путей в `BSP_SD_WriteBlocks_DMA`, показываются только если их сумма > 0.
+- `sdw_err: eb=... dma=... txto=... csto=... sdma=... stxto=... @sec=... cnt=... tick=...` — per-failure-point счётчики wrapper'а `SD_write` (4 fast-path + 2 scratch-path точки отказа), показывается только если была хотя бы одна ошибка.
+- `rec=N lastrec=FR_X@site` — появляется рядом с `err=` если срабатывал `recover_file()`. `FR_X` — код FatFS, `site` = `sync` / `write`.
 
 | Строка | Описание |
 |--------|----------|
@@ -62,8 +71,12 @@ can: 2 ids
 | `stream` | 1 = периодический вывод включён |
 | `file` | Текущий MLG файл, размер в байтах |
 | `files` | Сколько файлов создано с момента старта |
-| `blocks` | Количество data blocks в текущем файле |
+| `blocks` | Количество data blocks в текущем файле (uint8, wraps @256) |
 | `err=N/S` | N = счётчик ошибок SD, S = error state (1 = фатальная ошибка) |
+| `rec` | Сколько раз `recover_file()` отработал успешно (должно быть 0 на стабильной системе) |
+| `lastrec` | FRESULT и site последнего recovery trigger (диагностика) |
+| `sdw` | SD_write wrapper: `tot` = всего вызовов, `lat` = last/max latency (мс), `scratch` = сколько раз попали в slow path (unaligned buffer) |
+| `sdst` | SD_status wrapper: `calls` = всего вызовов, `fail` = transient PROGRAMMING событий, `rescued` = вылечены retry loop'ом, `hard` = превысили SD_STATUS_RETRY_MS, `maxret` = максимальное время retry (мс), `last_raw` = HAL card state на последнем hard fail |
 | `rb` | Ring buffer: count = фреймов в очереди, head/tail = позиции |
 | `sd` | Свободное / общее место на SD карте |
 | `can` | Количество уникальных CAN ID на шине |

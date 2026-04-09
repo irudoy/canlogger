@@ -1,5 +1,55 @@
 # SD Write Errors — Investigation Notes
 
+## Resolution (2026-04-10)
+
+**Root cause found and fixed.** The original analysis below correctly
+noted that SD cards stall for internal garbage collection, but it
+misidentified *where* that stall was blowing up. After instrumenting
+`sd_diskio.c` with per-failure-point counters, `SD_write` turned out to
+be handling the GC stalls fine — the failures all came from FatFS
+`validate()` via the `SD_status` path:
+
+```
+f_sync → validate(&fp->obj, &fs)
+       → disk_status(pdrv)              (in ff.c)
+       → SD_status(lun)                 (in sd_diskio.c)
+       → BSP_SD_GetCardState()          (polls CMD13 once)
+       → returns MSD_ERROR if card != TRANSFER
+       → STA_NOINIT set
+       → validate returns FR_INVALID_OBJECT (FR_9)
+```
+
+On a stress workload (64 U16 fields × 16 CAN IDs @ 250 Hz), the
+SanDisk Ultra briefly re-enters PROGRAMMING for background GC *after*
+a write completes. The next `f_sync` catches that window, `SD_status`
+rejects it, and the file operation fails even though no block write
+was ever attempted. This exactly matches the `FR_9@write` / `FR_9@sync`
+errors in the timeline below — they were never about a corrupted FIL
+object, they were validate() snapshots of a transient card state.
+
+**Fix (commit `6d96480`):** wrap `SD_status` in a 100 ms retry loop
+with `HAL_Delay(1)` between polls. The yield lets the card actually
+exit PROGRAMMING instead of being hammered by CMD13; 100 ms is well
+above the typical GC stall (a few ms) yet bounded enough to keep the
+main loop responsive on real hard failures.
+
+**Instrumentation (commit `aaa2d72`):** `sd_diskio_counters.h` exposes
+per-failure-point counters for both `SD_write` (4 early-return paths)
+and `SD_status` (calls / transient fails / retry rescues / hard
+fails / max retry wait). Printed by `cmd_status` as the `sdw:` and
+`sdst:` lines so regressions are visible from `make cdc-cmd CMD=status`.
+
+**Verification:** 10+ min stress run on SanDisk Ultra 32GB —
+`recovery_count = 0`, `files = 1` (no rotation from recovery),
+`sdst rescued = 11/11 hard = 0`, max retry wait `8 ms` out of the
+100 ms budget. Previous baseline without the fix hit `rec ≈ 24` in
+~10 min and entered FAULT state.
+
+The historical investigation notes below are preserved as context —
+they describe the failures that led to the fix, not the final state.
+
+---
+
 ## Observed problem (2026-04-06)
 
 After continuous logging, `lw_tick` gets `FR_DISK_ERR` (FatFS code 1) from `f_write` or `f_sync`.
@@ -130,13 +180,23 @@ BSP_SD_Init calls `HAL_SD_ConfigWideBusOperation(&hsd, SDIO_BUS_WIDE_4B)`.
 ### 5. SDIO timeout — ALREADY OK
 SD_TIMEOUT = 30 seconds (sd_diskio.c default). Sufficient for GC stalls.
 
+### 6. DMA for SDIO — DONE
+`BSP_SD_WriteBlocks_DMA` / `ReadBlocks_DMA` with DMA2 Stream 6 (write) /
+Stream 3 (read). See `sd_write_dma.c` for the BSP override that issues
+`HAL_DMA_Start_IT` before `SDMMC_CmdWriteBlock` (the stock HAL order
+caused TX_UNDERRUN under load). CPU no longer spin-waits on the data
+path; only the CMD13 polling loops in `SD_CheckStatusWithTimeout` and
+`SD_status` remain synchronous.
+
+### 7. SD_status retry loop — DONE (commit `6d96480`)
+100 ms retry in `SD_status` with `HAL_Delay(1)` between CMD13 polls,
+so FatFS `validate()` survives transient PROGRAMMING state from
+background GC. Fully eliminates the recovery loop on stress workloads.
+See the "Resolution" section at the top of this file for root cause.
+
 ## Remaining improvements
 
-### 1. DMA for SDIO
-Move from polled to DMA mode. CPU doesn't block during transfer.
-More tolerant of card stalls — DMA handles waiting.
-Requires: CubeMX DMA config, 32-bit aligned buffers, interrupt handlers.
-rusEFI uses DMA2 Stream 3, write timeout 250ms.
+(none at this time — the stress workload is stable)
 
 ## References
 
