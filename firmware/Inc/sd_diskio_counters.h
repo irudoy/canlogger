@@ -30,8 +30,11 @@ typedef struct {
   // makes f_sync's validate() return FR_INVALID_OBJECT without a
   // single SD_write being attempted.
   uint32_t status_calls;           // total SD_status invocations
-  uint32_t status_fail_not_ready;  // BSP_SD_GetCardState() != MSD_OK
-  uint32_t last_card_state_raw;    // raw HAL_SD card state on last failure
+  uint32_t status_fail_not_ready;  // BSP_SD_GetCardState() != MSD_OK on first poll
+  uint32_t status_retry_rescued;   // first poll failed but retry loop recovered
+  uint32_t status_hard_fail;       // retry loop exhausted SD_STATUS_RETRY_MS
+  uint32_t status_max_retry_ms;    // longest retry wait that eventually succeeded
+  uint32_t last_card_state_raw;    // raw HAL_SD card state on last hard failure
 } sd_sdio_Counters;
 
 void sd_sdio_get_counters(sd_sdio_Counters* out);

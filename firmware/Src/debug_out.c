@@ -247,8 +247,10 @@ static void cmd_status(const ring_Buffer* rb) {
   printf("sdw: tot=%lu lat=%lu/%lu scratch=%lu\r\n",
          sc.total_writes, sc.last_latency_ms, sc.max_latency_ms,
          sc.used_scratch_path);
-  printf("sdst: calls=%lu fail=%lu last_raw=%lu\r\n",
-         sc.status_calls, sc.status_fail_not_ready, sc.last_card_state_raw);
+  printf("sdst: calls=%lu fail=%lu rescued=%lu hard=%lu maxret=%lums last_raw=%lu\r\n",
+         sc.status_calls, sc.status_fail_not_ready,
+         sc.status_retry_rescued, sc.status_hard_fail,
+         sc.status_max_retry_ms, sc.last_card_state_raw);
   uint32_t sdw_errsum = sc.err_enter_busy + sc.err_dma_start +
                         sc.err_tx_cplt_timeout + sc.err_cardstate_timeout +
                         sc.err_slow_dma_start + sc.err_slow_tx_cplt;

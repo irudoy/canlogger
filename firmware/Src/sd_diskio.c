@@ -539,23 +539,52 @@ void BSP_SD_ErrorCallback(void)
 /* USER CODE BEGIN lastSection */
 extern SD_HandleTypeDef hsd;  /* defined in main.c */
 
-/* Instrumented replacement for SD_status. Called by FatFS validate() on
- * every file operation (f_sync/f_write/f_tell/...). Counts invocations
- * and failures (when the card isn't in TRANSFER state). */
+/* Max time SD_status will wait for the card to leave a transient
+ * PROGRAMMING/RECEIVING state before declaring the disk not-ready.
+ * FatFS validate() calls SD_status on every f_sync/f_write; without
+ * the retry loop, transient PROGRAMMING (the card's own background GC
+ * after a prior write) makes validate() return FR_INVALID_OBJECT even
+ * though no disk I/O was attempted. 100 ms is well above the typical
+ * GC stall (a few ms) yet small enough not to wreck main-loop
+ * responsiveness on the rare hard failure. */
+#define SD_STATUS_RETRY_MS 100u
+
+/* Instrumented, retry-capable replacement for SD_status. Called by FatFS
+ * validate() on every file operation (f_sync/f_write/f_tell/...). */
 #undef SD_status
 DSTATUS SD_status(BYTE lun)
 {
   (void)lun;
   g_sd_sdio_counters.status_calls++;
-  uint8_t cs = BSP_SD_GetCardState();
-  if (cs == MSD_OK) {
+
+  /* Fast path: card already in TRANSFER state. */
+  if (BSP_SD_GetCardState() == MSD_OK) {
     Stat &= ~STA_NOINIT;
-  } else {
-    Stat = STA_NOINIT;
-    g_sd_sdio_counters.status_fail_not_ready++;
-    /* Snapshot the raw HAL state for diagnostics. */
-    g_sd_sdio_counters.last_card_state_raw = (uint32_t)HAL_SD_GetCardState(&hsd);
+    return Stat;
   }
+
+  /* Slow path: give the card up to SD_STATUS_RETRY_MS to leave
+   * PROGRAMMING. HAL_Delay(1) yields SysTick granularity and
+   * prevents busy-waiting from starving background IRQs. */
+  g_sd_sdio_counters.status_fail_not_ready++;
+  uint32_t t0 = HAL_GetTick();
+  while ((HAL_GetTick() - t0) < SD_STATUS_RETRY_MS) {
+    HAL_Delay(1);
+    if (BSP_SD_GetCardState() == MSD_OK) {
+      uint32_t dt = HAL_GetTick() - t0;
+      g_sd_sdio_counters.status_retry_rescued++;
+      if (dt > g_sd_sdio_counters.status_max_retry_ms) {
+        g_sd_sdio_counters.status_max_retry_ms = dt;
+      }
+      Stat &= ~STA_NOINIT;
+      return Stat;
+    }
+  }
+
+  /* Retry exhausted — treat as a real failure. */
+  Stat = STA_NOINIT;
+  g_sd_sdio_counters.status_hard_fail++;
+  g_sd_sdio_counters.last_card_state_raw = (uint32_t)HAL_SD_GetCardState(&hsd);
   return Stat;
 }
 
