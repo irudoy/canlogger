@@ -179,7 +179,7 @@ void test_empty_input(void) {
 }
 
 void test_too_many_fields(void) {
-  char ini[8192];
+  static char ini[32768];
   int off = snprintf(ini, sizeof(ini), "[logger]\ninterval_ms = 10\n");
   for (int i = 0; i < CFG_MAX_FIELDS + 1; i++) {
     off += snprintf(ini + off, sizeof(ini) - off,

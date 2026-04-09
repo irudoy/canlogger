@@ -55,4 +55,10 @@ typedef struct {
 // Parse INI text from buffer. Returns CFG_OK or error code.
 int cfg_parse(const char* text, size_t len, cfg_Config* out);
 
+// Line reader callback: read one line into buf (max max_len), return length or -1 on EOF.
+typedef int (*cfg_readline_fn)(char* buf, int max_len, void* ctx);
+
+// Parse INI from a stream (line-by-line callback). No full-file buffer needed.
+int cfg_parse_stream(cfg_readline_fn readline, void* ctx, cfg_Config* out);
+
 #endif // CONFIG_H

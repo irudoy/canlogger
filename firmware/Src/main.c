@@ -30,6 +30,7 @@
 #include "can_map.h"
 #include "debug_out.h"
 #include "demo_gen.h"
+#include "demo_can.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -166,7 +167,12 @@ int main(void)
       break;
     }
 
-    // Drain CAN ring buffer (always, if CAN is active)
+    // Pack demo data into CAN frames (if demo + ring buf mode)
+    if (init_ok && config.demo && config.demo_gen.use_ring_buf) {
+      demo_pack_can_frames(&config, &can_rx_buf, HAL_GetTick());
+    }
+
+    // Drain CAN ring buffer (processes both real CAN and demo frames)
     {
       can_Frame frame;
       while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
@@ -176,8 +182,8 @@ int main(void)
       }
     }
 
-    // Generate demo data for fields with demo_func (runs alongside CAN)
-    if (init_ok && config.demo) {
+    // Direct demo for fields without CAN IDs (legacy path)
+    if (init_ok && config.demo && !config.demo_gen.use_ring_buf) {
       demo_generate(&config.demo_gen,
                     field_values.values, field_values.record_length,
                     demo_field_types, demo_field_scales, demo_field_offsets,

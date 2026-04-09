@@ -71,10 +71,20 @@
   - [ ] Проверять результат f_sync (сейчас игнорируется)
   - [ ] Recovery вместо fatal: close → remount → new file → продолжить запись
   - [ ] Уменьшить интервал f_sync (100 → 10 блоков)
-  - [ ] Cooldown после recovery (пауза 1с, дать SD отдышаться)
+  - [ ] Заменить HAL_Delay(1000) в recover_file() на non-blocking recovery (таймер + state machine)
   - [ ] Счётчик recovery в статусе (rec=N)
   - [ ] Исследовать: SDIO clock divider, питание SD, другая карта
+  - [ ] Убрать дублирование mlg_fields[256] (23KB RAM) — строить MLG header на лету из cfg_Config
   - [ ] recover_file() блокирует main loop на 30с при вытащенной SD (f_mount → SD_CheckStatusWithTimeout)
+  - [ ] Stress test max pressure: 128 полей / 32 CAN ID / 4ms (65 KB/s) — CMD_RSP_TIMEOUT через ~48с.
+    Карта (SanDisk Ultra 32GB) уходит в busy (GC), перестаёт отвечать на SDIO команды.
+    hsd.ErrorCode=4 (CTIMEOUT), sd_ErrorCounters все нули (timeout в polling, не ISR).
+    Recovery помогает временно (5 успешных), потом тоже падает.
+    f_expand(32MB, opt=0) медленный — блокирует main loop при каждом recovery/rotation.
+    Half-pressure (64 поля / 16 CAN ID / 4ms, ~32 KB/s) — тоже падает.
+    Даже cansult 13 полей падает через ~80с на чистой карте без f_expand (стек 12KB).
+    Проблема не в нагрузке — нужно исследовать DMA write path (sd_write_dma.c),
+    SDIO DTIMER, сравнить с commit до demo-through-ringbuf изменений.
 - [ ] Отладочный лог на SD — системные события, ошибки, сэмплы данных по условию
 - [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
 - [ ] Логирование статистики (принято/потеряно/записано фреймов)

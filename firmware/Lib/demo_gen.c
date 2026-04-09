@@ -49,7 +49,15 @@ void demo_init(demo_Gen* gen) {
 
     // Seed PRNG per field — different seeds for variety
     s->seed = 12345 + i * 7919;
+
+    // Generate random phases for noise octaves
+    for (int k = 0; k < 3; k++) {
+      s->phase[k] = (rand_float(&s->seed) + 1.0f) * M_PI; // [0, 2*PI]
+    }
   }
+
+  // Ensure first call to demo_pack_can_frames always generates
+  gen->last_pack_tick = UINT32_MAX;
 }
 
 // Convert display value to raw MLG value and write big-endian into buffer
@@ -123,6 +131,54 @@ static void write_field_value(uint8_t* buf, size_t offset, uint8_t type,
   }
 }
 
+float demo_compute_waveform(demo_FieldParams* p, demo_FieldState* s, uint32_t tick_ms) {
+  if (p->func == DEMO_NONE) return 0.0f;
+
+  float range = p->max_val - p->min_val;
+  float mid = (p->min_val + p->max_val) / 2.0f;
+  float phase = (float)(tick_ms % p->period_ms) / (float)p->period_ms;
+  float display_val = mid;
+
+  switch (p->func) {
+    case DEMO_SINE:
+      display_val = mid + (range / 2.0f) * sinf(2.0f * M_PI * phase);
+      break;
+
+    case DEMO_RAMP:
+      display_val = p->min_val + range * phase;
+      break;
+
+    case DEMO_SQUARE:
+      display_val = (phase < 0.5f) ? p->max_val : p->min_val;
+      break;
+
+    case DEMO_NOISE: {
+      // Sum of 3 sine octaves with random phases — smooth, realistic signal.
+      // Frequencies: base, 2.71x, 7.3x (irrational ratios avoid repetition)
+      float t = 2.0f * M_PI * phase;
+      float wave = 0.6f * sinf(t + s->phase[0])
+                 + 0.3f * sinf(2.71f * t + s->phase[1])
+                 + 0.1f * sinf(7.3f * t + s->phase[2]);
+      // Add small jitter (1% of range)
+      float jitter = 0.01f * range * rand_float(&s->seed);
+      display_val = mid + (range / 2.0f) * wave + jitter;
+      // Clamp to range
+      if (display_val < p->min_val) display_val = p->min_val;
+      if (display_val > p->max_val) display_val = p->max_val;
+      break;
+    }
+
+    case DEMO_CONST:
+      display_val = p->min_val;
+      break;
+
+    default:
+      break;
+  }
+
+  return display_val;
+}
+
 void demo_generate(demo_Gen* gen, uint8_t* values, size_t record_length,
                    const uint8_t* field_types, const float* field_scales,
                    const float* field_offsets, uint16_t num_fields,
@@ -140,44 +196,7 @@ void demo_generate(demo_Gen* gen, uint8_t* values, size_t record_length,
       continue;
     }
 
-    float range = p->max_val - p->min_val;
-    float mid = (p->min_val + p->max_val) / 2.0f;
-    float phase = (float)(tick_ms % p->period_ms) / (float)p->period_ms;
-    float display_val = mid;
-
-    switch (p->func) {
-      case DEMO_SINE:
-        display_val = mid + (range / 2.0f) * sinf(2.0f * M_PI * phase);
-        break;
-
-      case DEMO_RAMP:
-        display_val = p->min_val + range * phase;
-        break;
-
-      case DEMO_SQUARE:
-        display_val = (phase < 0.5f) ? p->max_val : p->min_val;
-        break;
-
-      case DEMO_NOISE: {
-        // Mean-reverting random walk:
-        // state = smoothing * state + (1-smoothing) * random_target
-        // random_target drifts around, mean-reverts to midpoint
-        float target = mid + (range / 2.0f) * rand_float(&s->seed);
-        s->state = p->smoothing * s->state + (1.0f - p->smoothing) * target;
-        // Clamp to range
-        if (s->state < p->min_val) s->state = p->min_val;
-        if (s->state > p->max_val) s->state = p->max_val;
-        display_val = s->state;
-        break;
-      }
-
-      case DEMO_CONST:
-        display_val = p->min_val;
-        break;
-
-      default:
-        break;
-    }
+    float display_val = demo_compute_waveform(p, s, tick_ms);
 
     write_field_value(values, offset, field_types[i],
                       display_val, field_scales[i], field_offsets[i]);

@@ -5,7 +5,7 @@
 #include "ring_buf.h"
 #include "mlvlg.h"
 
-#define CAN_MAP_MAX_RECORD_SIZE 256
+#define CAN_MAP_MAX_RECORD_SIZE 1024
 
 typedef struct {
   uint8_t  values[CAN_MAP_MAX_RECORD_SIZE]; // shadow buffer, big-endian field values

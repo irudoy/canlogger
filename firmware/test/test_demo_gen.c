@@ -47,7 +47,7 @@ static const char* MINI_DEMO_CONFIG =
   "demo_smoothing=0.95\n";
 
 void test_parse_demo_config(void) {
-  cfg_Config cfg;
+  static cfg_Config cfg;
   int rc = cfg_parse(MINI_DEMO_CONFIG, strlen(MINI_DEMO_CONFIG), &cfg);
   TEST_ASSERT_EQUAL(CFG_OK, rc);
   TEST_ASSERT_EQUAL(1, cfg.demo);
@@ -65,7 +65,7 @@ void test_parse_demo_config(void) {
 
 void test_demo_no_can_validation(void) {
   // Demo fields shouldn't need can_id, start_byte etc.
-  cfg_Config cfg;
+  static cfg_Config cfg;
   int rc = cfg_parse(MINI_DEMO_CONFIG, strlen(MINI_DEMO_CONFIG), &cfg);
   TEST_ASSERT_EQUAL(CFG_OK, rc);
   // can_id should be 0 (not set)
@@ -73,7 +73,7 @@ void test_demo_no_can_validation(void) {
 }
 
 void test_demo_gen_init(void) {
-  cfg_Config cfg;
+  static cfg_Config cfg;
   cfg_parse(MINI_DEMO_CONFIG, strlen(MINI_DEMO_CONFIG), &cfg);
 
   // demo_init should have been called by cfg_parse
@@ -86,7 +86,7 @@ void test_demo_gen_init(void) {
 // --- Generation tests ---
 
 void test_demo_sine_at_quarter_period(void) {
-  cfg_Config cfg;
+  static cfg_Config cfg;
   cfg_parse(MINI_DEMO_CONFIG, strlen(MINI_DEMO_CONFIG), &cfg);
 
   can_FieldValues fv;
@@ -107,7 +107,7 @@ void test_demo_sine_at_quarter_period(void) {
 }
 
 void test_demo_ramp_midpoint(void) {
-  cfg_Config cfg;
+  static cfg_Config cfg;
   cfg_parse(MINI_DEMO_CONFIG, strlen(MINI_DEMO_CONFIG), &cfg);
 
   can_FieldValues fv;
@@ -127,7 +127,7 @@ void test_demo_ramp_midpoint(void) {
 }
 
 void test_demo_noise_stays_in_range(void) {
-  cfg_Config cfg;
+  static cfg_Config cfg;
   cfg_parse(MINI_DEMO_CONFIG, strlen(MINI_DEMO_CONFIG), &cfg);
 
   can_FieldValues fv;
@@ -163,7 +163,7 @@ void test_demo_const_value(void) {
     "demo_func=const\n"
     "demo_min=13.5\n";
 
-  cfg_Config cfg;
+  static cfg_Config cfg;
   cfg_parse(cfg_text, strlen(cfg_text), &cfg);
 
   can_FieldValues fv;
@@ -195,7 +195,7 @@ void test_demo_square_wave(void) {
     "demo_max=12\n"
     "demo_period_ms=1000\n";
 
-  cfg_Config cfg;
+  static cfg_Config cfg;
   cfg_parse(cfg_text, strlen(cfg_text), &cfg);
 
   can_FieldValues fv;
@@ -232,7 +232,7 @@ void test_parse_full_demo_config(void) {
   buf[size] = '\0';
   fclose(f);
 
-  cfg_Config cfg;
+  static cfg_Config cfg;
   int rc = cfg_parse(buf, size, &cfg);
   free(buf);
 

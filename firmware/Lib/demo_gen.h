@@ -28,6 +28,7 @@ typedef struct {
 typedef struct {
   float state;           // current value for noise generator
   uint32_t seed;         // per-field PRNG state
+  float phase[3];        // random phases for noise octaves
 } demo_FieldState;
 
 // Overall demo generator state
@@ -36,10 +37,16 @@ typedef struct {
   demo_FieldState  fstate[CFG_MAX_FIELDS];
   uint16_t         num_fields;
   uint8_t          enabled;    // 1 if demo mode active
+  uint8_t          use_ring_buf; // 1 if any demo field has can_id != 0
+  uint32_t         last_pack_tick; // rate limiting for CAN frame generation
 } demo_Gen;
 
 // Parse demo_func string to enum
 demo_Func demo_parse_func(const char* s);
+
+// Compute waveform display value for a single field at given tick.
+// Returns the display-domain value (e.g. RPM, temperature).
+float demo_compute_waveform(demo_FieldParams* p, demo_FieldState* s, uint32_t tick_ms);
 
 // Initialize generator state (call after config parsed)
 void demo_init(demo_Gen* gen);

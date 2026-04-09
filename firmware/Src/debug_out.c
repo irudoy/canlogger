@@ -18,7 +18,7 @@ static uint8_t cmd_pos = 0;
 static volatile uint8_t cmd_ready = 0;
 
 // --- File upload state ---
-#define PUT_BUF_SIZE 8192
+#define PUT_BUF_SIZE 4096
 static uint8_t put_buf[PUT_BUF_SIZE];
 static volatile uint32_t put_expected = 0;   // expected file size
 static volatile uint32_t put_received = 0;   // bytes received so far

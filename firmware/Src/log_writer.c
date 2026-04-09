@@ -12,10 +12,9 @@
 #define LED_OFF 1
 #define BLINK_INTERVAL_NORMAL 500
 #define BLINK_INTERVAL_ERROR 100
-#define MAX_FILE_SIZE (512 * 1024 * 1024)
+#define MAX_FILE_SIZE (32 * 1024 * 1024)
 #define MAX_ERROR_COUNT 5
 #define CONFIG_FILE_NAME "config.ini"
-#define CONFIG_BUF_SIZE 8192
 
 extern RTC_HandleTypeDef hrtc;
 
@@ -42,7 +41,6 @@ static uint16_t num_mlg_fields = 0;
 static size_t record_length = 0;
 
 static uint8_t write_buf[512] __attribute__((aligned(4)));
-static char config_buf[CONFIG_BUF_SIZE];
 
 // I/O buffer: accumulate records, write to SD in larger chunks
 #define IO_BUF_SIZE 4096
@@ -92,6 +90,13 @@ static FRESULT write_mlg_file_header(void) {
   return FR_OK;
 }
 
+// Callback for cfg_parse_stream: read one line from FatFs file
+static int sd_readline(char* buf, int max_len, void* ctx) {
+  FIL* f = (FIL*)ctx;
+  if (f_gets(buf, max_len, f) == NULL) return -1;
+  return strlen(buf);
+}
+
 int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   // Mount SD
   FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
@@ -100,7 +105,7 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
     return -1;
   }
 
-  // Read config file
+  // Read and parse config file (streamed, no full-file buffer)
   FIL cfg_file;
   res = f_open(&cfg_file, CONFIG_FILE_NAME, FA_READ);
   if (res != FR_OK) {
@@ -108,17 +113,8 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
     return -1;
   }
 
-  UINT bytes_read;
-  res = f_read(&cfg_file, config_buf, CONFIG_BUF_SIZE - 1, &bytes_read);
+  int parse_ret = cfg_parse_stream(sd_readline, &cfg_file, cfg_out);
   f_close(&cfg_file);
-  if (res != FR_OK) {
-    set_error_state(res, "cfg_read");
-    return -1;
-  }
-  config_buf[bytes_read] = '\0';
-
-  // Parse config
-  int parse_ret = cfg_parse(config_buf, bytes_read, cfg_out);
   if (parse_ret != CFG_OK) {
     set_error_state(FR_INT_ERR, "cfg_parse");
     return -1;
@@ -245,7 +241,14 @@ void lw_get_status(lw_Status* out) {
 
 #define RECOVERY_DELAY_MS 1000
 
+#define MAX_RECOVERY_COUNT 5
+
 static FRESULT recover_file(void) {
+  recovery_count++;
+  if (recovery_count >= MAX_RECOVERY_COUNT) {
+    return FR_DISK_ERR;  // will trigger error_state via handle_error
+  }
+
   f_close(&log_file_obj);
   // Remount SD — card may need full re-init after GC stall
   f_mount(0, "", 0);
@@ -254,7 +257,6 @@ static FRESULT recover_file(void) {
   if (res != FR_OK) return res;
   res = create_new_log_file();
   if (res == FR_OK) {
-    recovery_count++;
     error_count = 0;
   }
   return res;
@@ -289,7 +291,9 @@ static FRESULT create_new_log_file(void) {
   FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_ALWAYS | FA_WRITE);
   if (res != FR_OK) return handle_error(res, "create");
 
-  // Pre-allocate contiguous space before any writes (objsize must be 0)
+  // Pre-allocate contiguous space (opt=1) — same as rusEFI mmc_card.cpp.
+  // Avoids FAT-table reads/writes interleaved with data stream, which
+  // caused CMD_RSP_TIMEOUT when card was still in PROGRAMMING state.
   f_expand(&log_file_obj, MAX_FILE_SIZE, 1);
   f_lseek(&log_file_obj, 0);
 

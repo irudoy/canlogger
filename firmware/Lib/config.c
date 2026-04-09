@@ -116,143 +116,129 @@ static void copy_str(char* dest, const char* src, size_t max_len) {
   dest[max_len - 1] = '\0';
 }
 
-int cfg_parse(const char* text, size_t len, cfg_Config* out) {
-  if (!text || !out) return CFG_ERR_MISSING;
+// Parser state passed between process_line calls
+typedef struct {
+  cfg_Config* out;
+  Section section;
+  int logger_found;
+  int field_idx;
+} ParseState;
 
-  memset(out, 0, sizeof(cfg_Config));
+// Process a single trimmed line. Returns CFG_OK or error code.
+static int process_line(char* line, ParseState* st) {
+  cfg_Config* out = st->out;
 
-  Section section = SEC_NONE;
-  int logger_found = 0;
-  int field_idx = -1;
+  trim_right(line);
+  const char* s = skip_spaces(line);
+  if (*s == '\0' || *s == '#' || *s == ';') return CFG_OK;
 
-  const char* p = text;
-  const char* end = text + len;
+  // Section header
+  if (*s == '[') {
+    const char* close = strchr(s, ']');
+    if (!close) return CFG_OK;
 
-  char line[256];
+    char sec_name[32] = {0};
+    size_t sec_len = close - s - 1;
+    if (sec_len >= sizeof(sec_name)) sec_len = sizeof(sec_name) - 1;
+    memcpy(sec_name, s + 1, sec_len);
+    sec_name[sec_len] = '\0';
 
-  while (p < end) {
-    // Extract one line
-    const char* eol = p;
-    while (eol < end && *eol != '\n') eol++;
-
-    size_t line_len = eol - p;
-    if (line_len >= sizeof(line)) {
-      p = eol + 1;
-      continue; // skip lines longer than buffer
+    if (strcmp(sec_name, "logger") == 0) {
+      st->section = SEC_LOGGER;
+      st->logger_found = 1;
+    } else if (strcmp(sec_name, "field") == 0) {
+      st->section = SEC_FIELD;
+      st->field_idx++;
+      if (st->field_idx >= CFG_MAX_FIELDS) {
+        return CFG_ERR_OVERFLOW;
+      }
+      // Set defaults
+      out->fields[st->field_idx].scale = 1.0f;
+      out->fields[st->field_idx].offset = 0.0f;
+      out->fields[st->field_idx].digits = 0;
+      out->fields[st->field_idx].display_style = 0;
+      out->fields[st->field_idx].is_big_endian = 0;
+      out->fields[st->field_idx].category[0] = '\0';
+      out->num_fields = st->field_idx + 1;
     }
-    memcpy(line, p, line_len);
-    line[line_len] = '\0';
-    trim_right(line);
+    return CFG_OK;
+  }
 
-    p = eol + 1;
+  // Key = value
+  char* eq = strchr(line, '=');
+  if (!eq) return CFG_OK;
 
-    // Skip empty lines and comments
-    const char* s = skip_spaces(line);
-    if (*s == '\0' || *s == '#' || *s == ';') continue;
+  *eq = '\0';
+  char* key = line;
+  trim_right(key);
+  const char* raw_key = skip_spaces(key);
 
-    // Section header
-    if (*s == '[') {
-      const char* close = strchr(s, ']');
-      if (!close) continue;
+  const char* val = skip_spaces(eq + 1);
+  char val_buf[128];
+  copy_str(val_buf, val, sizeof(val_buf));
+  trim_right(val_buf);
 
-      char sec_name[32] = {0};
-      size_t sec_len = close - s - 1;
-      if (sec_len >= sizeof(sec_name)) sec_len = sizeof(sec_name) - 1;
-      memcpy(sec_name, s + 1, sec_len);
-      sec_name[sec_len] = '\0';
+  int fi = st->field_idx;
 
-      if (strcmp(sec_name, "logger") == 0) {
-        section = SEC_LOGGER;
-        logger_found = 1;
-      } else if (strcmp(sec_name, "field") == 0) {
-        section = SEC_FIELD;
-        field_idx++;
-        if (field_idx >= CFG_MAX_FIELDS) {
-          return CFG_ERR_OVERFLOW;
-        }
-        // Set defaults
-        out->fields[field_idx].scale = 1.0f;
-        out->fields[field_idx].offset = 0.0f;
-        out->fields[field_idx].digits = 0;
-        out->fields[field_idx].display_style = 0;
-        out->fields[field_idx].is_big_endian = 0;
-        out->fields[field_idx].category[0] = '\0';
-        out->num_fields = field_idx + 1;
-      }
-      continue;
+  if (st->section == SEC_LOGGER) {
+    if (strcmp(raw_key, "interval_ms") == 0) {
+      out->log_interval_ms = parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "can_bitrate") == 0) {
+      out->can_bitrate = parse_uint32(val_buf);
     }
-
-    // Key = value
-    char* eq = strchr(line, '=');
-    if (!eq) continue;
-
-    *eq = '\0';
-    char* key = line;
-    trim_right(key);
-    const char* raw_key = skip_spaces(key);
-
-    const char* val = skip_spaces(eq + 1);
-    // Trim trailing from val (already done via line trim, but val might have leading space)
-    char val_buf[128];
-    copy_str(val_buf, val, sizeof(val_buf));
-    trim_right(val_buf);
-
-    if (section == SEC_LOGGER) {
-      if (strcmp(raw_key, "interval_ms") == 0) {
-        out->log_interval_ms = parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "can_bitrate") == 0) {
-        out->can_bitrate = parse_uint32(val_buf);
-      }
-    } else if (section == SEC_FIELD && field_idx >= 0) {
-      cfg_Field* f = &out->fields[field_idx];
-      if (strcmp(raw_key, "can_id") == 0) {
-        f->can_id = parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "name") == 0) {
-        copy_str(f->name, val_buf, CFG_NAME_SIZE);
-      } else if (strcmp(raw_key, "units") == 0) {
-        copy_str(f->units, val_buf, CFG_UNITS_SIZE);
-      } else if (strcmp(raw_key, "start_byte") == 0) {
-        f->start_byte = (uint8_t)parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "bit_length") == 0) {
-        f->bit_length = (uint8_t)parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "type") == 0) {
-        uint8_t t = parse_type(val_buf);
-        if (t == 0xFF) return CFG_ERR_VALUE;
-        f->type = t;
-      } else if (strcmp(raw_key, "scale") == 0) {
-        f->scale = parse_float(val_buf);
-      } else if (strcmp(raw_key, "offset") == 0) {
-        f->offset = parse_float(val_buf);
-      } else if (strcmp(raw_key, "digits") == 0) {
-        f->digits = (int8_t)parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "display_style") == 0) {
-        f->display_style = (uint8_t)parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "is_big_endian") == 0) {
-        f->is_big_endian = (uint8_t)parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "category") == 0) {
-        copy_str(f->category, val_buf, CFG_CAT_SIZE);
-      } else if (strcmp(raw_key, "lut") == 0) {
-        if (parse_lut(val_buf, f->lut, &f->lut_count) != 0) return CFG_ERR_VALUE;
-      } else if (strcmp(raw_key, "demo_func") == 0) {
-        out->demo_gen.params[field_idx].func = demo_parse_func(val_buf);
-      } else if (strcmp(raw_key, "demo_min") == 0) {
-        out->demo_gen.params[field_idx].min_val = parse_float(val_buf);
-      } else if (strcmp(raw_key, "demo_max") == 0) {
-        out->demo_gen.params[field_idx].max_val = parse_float(val_buf);
-      } else if (strcmp(raw_key, "demo_period_ms") == 0) {
-        out->demo_gen.params[field_idx].period_ms = parse_uint32(val_buf);
-      } else if (strcmp(raw_key, "demo_smoothing") == 0) {
-        out->demo_gen.params[field_idx].smoothing = parse_float(val_buf);
-      }
+  } else if (st->section == SEC_FIELD && fi >= 0) {
+    cfg_Field* f = &out->fields[fi];
+    if (strcmp(raw_key, "can_id") == 0) {
+      f->can_id = parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "name") == 0) {
+      copy_str(f->name, val_buf, CFG_NAME_SIZE);
+    } else if (strcmp(raw_key, "units") == 0) {
+      copy_str(f->units, val_buf, CFG_UNITS_SIZE);
+    } else if (strcmp(raw_key, "start_byte") == 0) {
+      f->start_byte = (uint8_t)parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "bit_length") == 0) {
+      f->bit_length = (uint8_t)parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "type") == 0) {
+      uint8_t t = parse_type(val_buf);
+      if (t == 0xFF) return CFG_ERR_VALUE;
+      f->type = t;
+    } else if (strcmp(raw_key, "scale") == 0) {
+      f->scale = parse_float(val_buf);
+    } else if (strcmp(raw_key, "offset") == 0) {
+      f->offset = parse_float(val_buf);
+    } else if (strcmp(raw_key, "digits") == 0) {
+      f->digits = (int8_t)parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "display_style") == 0) {
+      f->display_style = (uint8_t)parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "is_big_endian") == 0) {
+      f->is_big_endian = (uint8_t)parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "category") == 0) {
+      copy_str(f->category, val_buf, CFG_CAT_SIZE);
+    } else if (strcmp(raw_key, "lut") == 0) {
+      if (parse_lut(val_buf, f->lut, &f->lut_count) != 0) return CFG_ERR_VALUE;
+    } else if (strcmp(raw_key, "demo_func") == 0) {
+      out->demo_gen.params[fi].func = demo_parse_func(val_buf);
+    } else if (strcmp(raw_key, "demo_min") == 0) {
+      out->demo_gen.params[fi].min_val = parse_float(val_buf);
+    } else if (strcmp(raw_key, "demo_max") == 0) {
+      out->demo_gen.params[fi].max_val = parse_float(val_buf);
+    } else if (strcmp(raw_key, "demo_period_ms") == 0) {
+      out->demo_gen.params[fi].period_ms = parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "demo_smoothing") == 0) {
+      out->demo_gen.params[fi].smoothing = parse_float(val_buf);
     }
   }
 
+  return CFG_OK;
+}
+
+// Post-parse: validate, collect CAN IDs, init demo
+static int cfg_finalize(cfg_Config* out, int logger_found) {
   if (!logger_found) return CFG_ERR_MISSING;
 
-  // Default bitrate
   if (out->can_bitrate == 0) out->can_bitrate = 500000;
 
-  // Collect unique CAN IDs from fields (skip demo-only fields with can_id=0)
+  // Collect unique CAN IDs
   out->num_can_ids = 0;
   for (int i = 0; i < out->num_fields; i++) {
     if (out->fields[i].can_id == 0) continue;
@@ -268,9 +254,7 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
   // Validate fields
   for (int i = 0; i < out->num_fields; i++) {
     cfg_Field* f = &out->fields[i];
-    // Demo fields don't need CAN-specific validation
     if (out->demo_gen.params[i].func != DEMO_NONE) {
-      // Set bit_length from type if not specified (needed for can_map_init)
       if (f->bit_length == 0) {
         size_t sz = mlg_field_data_size((mlg_FieldType)f->type);
         f->bit_length = sz * 8;
@@ -281,7 +265,7 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
     if (f->start_byte + f->bit_length / 8 > 8) return CFG_ERR_VALUE;
   }
 
-  // Auto-detect demo mode: enabled if any field has demo_func
+  // Auto-detect demo mode
   for (int i = 0; i < out->num_fields; i++) {
     if (out->demo_gen.params[i].func != DEMO_NONE) {
       out->demo = 1;
@@ -291,8 +275,61 @@ int cfg_parse(const char* text, size_t len, cfg_Config* out) {
   if (out->demo) {
     out->demo_gen.num_fields = out->num_fields;
     out->demo_gen.enabled = 1;
+    for (int i = 0; i < out->num_fields; i++) {
+      if (out->demo_gen.params[i].func != DEMO_NONE && out->fields[i].can_id != 0) {
+        out->demo_gen.use_ring_buf = 1;
+        break;
+      }
+    }
     demo_init(&out->demo_gen);
   }
 
   return CFG_OK;
+}
+
+int cfg_parse(const char* text, size_t len, cfg_Config* out) {
+  if (!text || !out) return CFG_ERR_MISSING;
+
+  memset(out, 0, sizeof(cfg_Config));
+
+  ParseState st = { .out = out, .section = SEC_NONE, .logger_found = 0, .field_idx = -1 };
+
+  const char* p = text;
+  const char* end = text + len;
+  char line[256];
+
+  while (p < end) {
+    const char* eol = p;
+    while (eol < end && *eol != '\n') eol++;
+
+    size_t line_len = eol - p;
+    if (line_len >= sizeof(line)) {
+      p = eol + 1;
+      continue;
+    }
+    memcpy(line, p, line_len);
+    line[line_len] = '\0';
+    p = eol + 1;
+
+    int rc = process_line(line, &st);
+    if (rc != CFG_OK) return rc;
+  }
+
+  return cfg_finalize(out, st.logger_found);
+}
+
+int cfg_parse_stream(cfg_readline_fn readline, void* ctx, cfg_Config* out) {
+  if (!readline || !out) return CFG_ERR_MISSING;
+
+  memset(out, 0, sizeof(cfg_Config));
+
+  ParseState st = { .out = out, .section = SEC_NONE, .logger_found = 0, .field_idx = -1 };
+
+  char line[256];
+  while (readline(line, sizeof(line), ctx) >= 0) {
+    int rc = process_line(line, &st);
+    if (rc != CFG_OK) return rc;
+  }
+
+  return cfg_finalize(out, st.logger_found);
 }

@@ -83,6 +83,26 @@ uint8_t BSP_SD_WriteBlocks_DMA(uint32_t *pData, uint32_t WriteAddr, uint32_t Num
   if (hsd.State != HAL_SD_STATE_READY) return MSD_ERROR;
 
   hsd.ErrorCode = HAL_SD_ERROR_NONE;
+
+  /* Wait for card to leave PROGRAMMING/RCV state after previous write.
+   * Stock HAL doesn't do this — hsd.State goes READY on DATAEND IRQ, but the
+   * card may still be internally programming flash (D0 held LOW). Sending a
+   * new CMD24/25 during that window yields CMD_RSP_TIMEOUT.
+   * rusEFI/ChibiOS polls CMD13 until TRAN — same idea here via HAL_SD_GetCardState.
+   */
+  {
+    uint32_t t0 = HAL_GetTick();
+    for (;;) {
+      HAL_SD_CardStateTypeDef cs = HAL_SD_GetCardState(&hsd);
+      if (hsd.ErrorCode != HAL_SD_ERROR_NONE) return MSD_ERROR;  // CMD13 failed
+      if (cs == HAL_SD_CARD_TRANSFER) break;
+      if ((HAL_GetTick() - t0) > SDMMC_DATATIMEOUT) {
+        hsd.ErrorCode |= HAL_SD_ERROR_TIMEOUT;
+        return MSD_ERROR;
+      }
+    }
+  }
+
   if ((add + NumOfBlocks) > hsd.SdCard.LogBlockNbr) return MSD_ERROR;
 
   hsd.State = HAL_SD_STATE_BUSY;
