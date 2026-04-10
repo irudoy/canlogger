@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "main.h"
+#include "cmsis_os2.h"
 #include "mlvlg.h"
 #include "sd_write_dma.h"
 
@@ -148,21 +149,14 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
   return 0;
 }
 
-FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
+FRESULT lw_write_snapshot(const uint8_t* values, size_t rec_length) {
   if (error_state || paused) return FR_OK;
 
-  uint32_t now = HAL_GetTick();
-  if (now - last_log_tick < log_interval_ms) {
-    return FR_OK;
-  }
-  last_log_tick = now;
-
-  // Timestamp: ms → 10us units (use uint64_t to avoid overflow at ~1.2 hours)
-  uint16_t timestamp_10us = (uint16_t)(((uint64_t)now * 100) & 0xFFFF);
+  uint16_t timestamp_10us = (uint16_t)(((uint64_t)HAL_GetTick() * 100) & 0xFFFF);
 
   int ret = mlg_write_data_block(write_buf, sizeof(write_buf),
                                   block_counter++, timestamp_10us,
-                                  fv->values, fv->record_length);
+                                  values, rec_length);
   if (ret < 0) return FR_INT_ERR;
 
   // Accumulate in I/O buffer, flush when full
@@ -174,18 +168,12 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
   io_pos += ret;
 
   // Sync periodically (every 100 blocks)
-  static uint32_t sync_counter = 0;
-  if (++sync_counter % 100 == 0) {
+  static uint32_t snap_sync_counter = 0;
+  if (++snap_sync_counter % 100 == 0) {
     FRESULT res = flush_io_buf();
     if (res != FR_OK) return res;
     res = f_sync(&log_file_obj);
     if (res != FR_OK) {
-      // Sync failure means file object state is suspect — try recovery
-      // (remount + reopen) rather than just counting errors until fatal.
-      // NOTE: recovery opens a NEW file, so any data written to the old
-      // file since its last successful sync is effectively lost (may or
-      // may not be on disk depending on when the failure occurred).
-      // Trade-off: continued operation over data completeness.
       last_rec_res = res;
       last_rec_at = "sync";
       FRESULT rec = recover_file();
@@ -193,7 +181,7 @@ FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms) {
     }
   }
 
-  // File rotation (f_tell for actual position, f_size is MAX_FILE_SIZE after f_expand)
+  // File rotation
   if (f_tell(&log_file_obj) + io_pos >= MAX_FILE_SIZE) {
     FRESULT res = flush_io_buf();
     if (res != FR_OK) return res;
@@ -277,7 +265,7 @@ static FRESULT recover_file(void) {
   f_close(&log_file_obj);
   // Remount SD — card may need full re-init after GC stall
   f_mount(0, "", 0);
-  HAL_Delay(RECOVERY_DELAY_MS);
+  osDelay(RECOVERY_DELAY_MS);
   FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
   if (res != FR_OK) return res;
   res = create_new_log_file();
@@ -380,7 +368,7 @@ static uint32_t fault_counter = 0;
 static void write_fault_file(FRESULT fault_res, const char* fault_at) {
   f_close(&log_file_obj);
   f_mount(0, "", 0);
-  HAL_Delay(500);
+  osDelay(500);
   FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
   if (res != FR_OK) return;
 

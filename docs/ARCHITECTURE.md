@@ -12,7 +12,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                      Application                            │
 │                        main.c                               │
-│              Инициализация, main loop, glue code            │
+│          Init, FreeRTOS tasks, glue code                    │
 ├─────────────────────────────────────────────────────────────┤
 │                       Lib/ (host-testable)                  │
 │                                                             │
@@ -31,7 +31,7 @@
 │  └──────────┘  └──────────┘  └──────────┘  └────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │                    Platform (CubeMX)                        │
-│         HAL, CMSIS, FatFS, Drivers, Startup                 │
+│      HAL, CMSIS, FatFS, FreeRTOS CMSIS_V2, Drivers          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -140,22 +140,22 @@ int mlg_write_marker(uint8_t* buf, size_t buf_size,
 
 ### ring_buf — кольцевой буфер CAN-фреймов
 
-Lock-free SPSC (single-producer single-consumer) для передачи фреймов из ISR в main loop.
+Lock-free SPSC (single-producer single-consumer) для передачи фреймов из ISR в task_producer.
 
 ```c
 // Lib/ring_buf.h
 
-#define RING_BUF_SIZE 64  // должен быть степенью двойки
+#define RING_BUF_SIZE 1024  // должен быть степенью двойки
 
 typedef struct {
   can_Frame frames[RING_BUF_SIZE];
-  volatile uint32_t head;  // пишет ISR
-  volatile uint32_t tail;  // читает main loop
+  volatile uint32_t head;  // пишет ISR (или demo_pack из task_producer)
+  volatile uint32_t tail;  // читает task_producer
 } ring_Buffer;
 
 void ring_buf_init(ring_Buffer* rb);
-int  ring_buf_push(ring_Buffer* rb, const can_Frame* frame);  // из ISR
-int  ring_buf_pop(ring_Buffer* rb, can_Frame* frame);          // из main loop
+int  ring_buf_push(ring_Buffer* rb, const can_Frame* frame);  // из ISR / demo_pack
+int  ring_buf_pop(ring_Buffer* rb, can_Frame* frame);          // из task_producer
 int  ring_buf_is_empty(const ring_Buffer* rb);
 int  ring_buf_is_full(const ring_Buffer* rb);
 ```
@@ -193,45 +193,43 @@ int  sd_new_file(const char* name);
 void led_set_state(int state);  // LED_LOGGING, LED_ERROR, LED_STOPPED, LED_NO_CONFIG
 ```
 
-## Поток данных
+## Поток данных (FreeRTOS, 2 задачи)
+
+Архитектура: snapshot-модель по образцу rusEFI `MMCmonThread`.
+Shared `field_values` — аналог rusEFI `outputChannels`.
+Подробности миграции: `docs/SD_WRITER_DECOUPLING.md`.
 
 ```
-                    ┌──────────────────┐
-                    │  SD: config.ini  │
-                    └────────┬─────────┘
-                             │ sd_read_file() → buf
-                             ▼
-                    ┌──────────────────┐
-                    │  cfg_parse(buf)  │  Lib/config
-                    └────────┬─────────┘
-                             │ cfg_Config
-                    ┌────────▼─────────┐
-                    │  can_map_init()  │  Lib/can_map
-                    │  mlg header +    │  Lib/mlvlg
-                    │  fields → SD     │
-                    └────────┬─────────┘
-                             │
-          ┌──────────────────▼──────────────────┐
-          │            Main Loop                 │
-          │                                      │
-          │  ┌─────────────────────────────┐     │
-          │  │ while ring_buf_pop(frame):  │     │
-          │  │   can_map_process(frame)    │     │
-          │  └─────────────────────────────┘     │
-          │                                      │
-          │  ┌─────────────────────────────┐     │
-          │  │ if timer >= log_interval:   │     │
-          │  │   mlg_write_data_block(     │     │
-          │  │     shadow_values)          │     │
-          │  │   sd_write(block_buf)       │     │
-          │  └─────────────────────────────┘     │
-          └──────────────────────────────────────┘
-                             ▲
-                             │ ISR (CAN RX)
-          ┌──────────────────┴──────────────────┐
+          CAN ISR (NVIC prio 5)
+          ┌─────────────────────────────────────┐
           │  HAL_CAN_RxFifo0MsgPendingCallback  │
           │    → can_Frame → ring_buf_push()    │
-          └─────────────────────────────────────┘
+          └──────────────────┬──────────────────┘
+                             │
+                             ▼ ring_Buffer (SPSC, 1024 slots)
+   ┌─────────────────────────────────────────────────────┐
+   │  task_producer  (osPriorityNormal, defaultTask)     │
+   │                                                     │
+   │  1. Init: lw_init → SD mount, config, MLG header    │
+   │  2. Loop (osDelay 1 ms):                            │
+   │     ├─ demo_pack_can_frames (if demo mode)          │
+   │     ├─ mutex { ring_buf_pop → can_map_process →     │
+   │     │          update field_values shadow }          │
+   │     ├─ debug_out_tick / debug_cmd_poll (CDC CLI)    │
+   │     └─ lw_update_leds                               │
+   └─────────────────────────────────────────────────────┘
+                             │
+                             │ osMutex: snapshot field_values.values
+                             ▼
+   ┌─────────────────────────────────────────────────────┐
+   │  task_sd  (osPriorityBelowNormal)                   │
+   │                                                     │
+   │  Loop (osDelayUntil, periodic log_interval_ms):     │
+   │     ├─ mutex { memcpy snapshot ← field_values }     │
+   │     └─ lw_write_snapshot → io_buf → f_write/f_sync  │
+   │        (блокируется в SD_write при GC stall —       │
+   │         только этот task стоит, CAN drain идёт)     │
+   └─────────────────────────────────────────────────────┘
 ```
 
 ## Формат конфиг-файла (config.ini)
@@ -357,49 +355,56 @@ category = SwitchBoard
 lut = 400:20, 4650:250
 ```
 
-## Жизненный цикл (main.c)
+## Жизненный цикл (FreeRTOS)
 
-### Инициализация
-
-```
-1. HAL_Init(), SystemClock_Config()
-2. GPIO, SDIO, RTC init (CubeMX)
-3. sd_init() — монтирование SD
-4. sd_read_file("config.ini") → буфер
-5. cfg_parse(буфер) → cfg_Config
-6.   если нет конфига или ошибка парсинга → led_set_state(LED_NO_CONFIG), стоп
-7. can_map_init(cfg) → can_FieldValues (shadow buffer)
-8. Запись MLG header + field descriptors на SD
-9. CAN init (CubeMX HAL), запуск приёма
-10. led_set_state(LED_LOGGING)
-```
-
-### Main loop
+### Инициализация (main.c → StartDefaultTask)
 
 ```
-while (!shutdown) {
-    // 1. Вычитать все CAN-фреймы из ring buffer
-    while (ring_buf_pop(&rb, &frame))
-        can_map_process(&fv, &cfg, &frame);
+main():
+  1. HAL_Init(), SystemClock_Config()
+  2. GPIO, DMA, CAN1, SDIO, FATFS, RTC init (CubeMX)
+  3. ring_buf_init()
+  4. osKernelInitialize() → create shadow_mutex, defaultTask, sdTask
+  5. osKernelStart() — управление переходит к scheduler
 
-    // 2. По таймеру — записать data block
-    if (HAL_GetTick() - last_log >= cfg.log_interval_ms) {
-        mlg_write_data_block(buf, ..., fv.values, fv.record_length);
-        sd_write(buf, block_size);
-        last_log = HAL_GetTick();
+StartDefaultTask (task_producer):
+  6. MX_USB_DEVICE_Init() — USB CDC
+  7. lw_init() — SD mount, config parse, MLG header+fields write
+  8. can_drv_init/start — CAN приём (или sniffer mode если нет конфига)
+  9. → главный цикл task_producer
+```
+
+### Задачи (runtime)
+
+**task_producer** (osPriorityNormal) — CAN drain + debug CLI:
+```
+for(;;) {
+    demo_pack_can_frames()          // если demo mode
+    mutex {
+        while (ring_buf_pop(&frame))
+            can_map_process(→ field_values shadow)
+        demo_generate()             // legacy direct path
     }
-
-    // 3. Ротация файла при превышении размера
-    // 4. LED индикация
+    debug_out_tick / debug_cmd_poll // USB CDC CLI
+    lw_update_leds()
+    osDelay(1)
 }
 ```
 
-### Shutdown (по кнопке K1 или потере питания)
+**task_sd** (osPriorityBelowNormal) — SD writer:
+```
+for(;;) {
+    osDelayUntil(next_wake)         // periodic, drift-free
+    mutex { memcpy snapshot ← field_values }
+    lw_write_snapshot(snapshot)     // io_buf → f_write → f_sync → rotate
+}
+```
+
+### Shutdown (кнопка K1 → EXTI ISR → lw_shutdown = 1)
 
 ```
-1. Дописать текущий буфер на SD
-2. sd_close()
-3. led_set_state(LED_STOPPED)
+task_producer: can_drv_stop(), osDelay(50), osThreadExit()
+task_sd:       lw_stop() (flush + sync + truncate + close), osThreadExit()
 ```
 
 ## Обработка ошибок
@@ -465,7 +470,7 @@ firmware/
 │   ├── cfg_limits.h        # Shared limits (CFG_MAX_FIELDS, CFG_MAX_CAN_IDS)
 │   └── ring_buf.{h,c}     # Lock-free SPSC ring buffer
 ├── Src/                    # HAL-зависимые обёртки
-│   ├── main.c              # Init, main loop, glue
+│   ├── main.c              # Init, FreeRTOS tasks (task_producer, task_sd), glue
 │   ├── can_drv.c           # CAN HAL → ring_buf
 │   ├── log_writer.c        # SD: config read, MLG write, file rotation, error recovery, FAULT file
 │   ├── sd_write_dma.c      # BSP override: DMA write fix, SDIO error counters

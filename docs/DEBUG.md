@@ -213,11 +213,11 @@ updated=1 values: 0 147 130 55 0 255 30
 Модуль `Src/debug_out.c`:
 - `__io_putchar()` → буферизованный `CDC_Transmit_FS()` с retry при BUSY (для команд)
 - `debug_cmd_receive()` — вызывается из `CDC_Receive_FS` (ISR), заполняет RX буфер, эхо
-- `debug_cmd_poll()` — вызывается из main loop, парсит и выполняет команды
+- `debug_cmd_poll()` — вызывается из task_producer, парсит и выполняет команды
 - `debug_out_tick()` — периодический вывод (когда stream включён)
 - `debug_out_set_can()` — захват любого CAN фрейма для отображения
 
-Main.c:
-- `debug_out_tick(...)` в main loop
-- `debug_cmd_poll(&config, init_ok, &can_rx_buf)` в main loop
+Main.c (task_producer — StartDefaultTask):
+- `debug_out_tick(...)` в task_producer loop
+- `debug_cmd_poll(&config, init_ok, &can_rx_buf)` в task_producer loop
 - `debug_out_set_can(...)` при получении каждого CAN фрейма

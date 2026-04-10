@@ -3,6 +3,7 @@
 #include "sd_write_dma.h"
 #include "sd_diskio_counters.h"
 #include "stm32f4xx_hal.h"
+#include "cmsis_os2.h"
 #include "fatfs.h"
 #include <stdio.h>
 #include <string.h>
@@ -48,7 +49,7 @@ static void cdc_flush(void) {
     if (cdc_wait) {
       uint8_t retries = 50;
       while (CDC_Transmit_FS(cdc_tx_buf, cdc_tx_pos) == USBD_BUSY && retries-- > 0) {
-        HAL_Delay(1);
+        osDelay(1);
       }
     } else {
       CDC_Transmit_FS(cdc_tx_buf, cdc_tx_pos);
@@ -360,14 +361,14 @@ static void cmd_get(const char* filename) {
     // Send raw bytes via CDC, wait if busy
     uint8_t retries = 200;
     while (CDC_Transmit_FS(fbuf, br) == USBD_BUSY && retries-- > 0) {
-      HAL_Delay(1);
+      osDelay(1);
     }
     size -= br;
   }
   f_close(&file);
 
   // Small delay to let last chunk transmit before sending END marker
-  HAL_Delay(5);
+  osDelay(5);
   printf("\nEND\n");
 
   stream_enabled = was_streaming;
@@ -476,7 +477,7 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
         printf("ERR:size\r\n");
       } else {
         // Pause logger BEFORE opening put_file. Streaming put can take
-        // seconds for large files; interleaving with lw_tick writes would
+        // seconds for large files; interleaving with lw_write_snapshot would
         // cause FAT-table contention on the same SD → CMD_RSP_TIMEOUT.
         // lw_pause flushes & closes the log file but keeps SD mounted so
         // we can f_open put_file on the same volume. User must reboot

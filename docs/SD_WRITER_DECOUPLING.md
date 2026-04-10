@@ -190,7 +190,39 @@ task_sd (osPriorityBelowNormal):
 10. `SD_status` retry: `HAL_Delay` → `osDelay`
 11. Документация, тесты
 
-## Итоговая позиция
+## Статус миграции
+
+**Миграция выполнена.** FreeRTOS CMSIS_V2 интегрирован, pipeline разделён
+на два task'а (task_producer + task_sd). Smoke test на `demo_stress_64u16.ini`
+(64 U16 × 16 CAN IDs × 250 Hz) подтвердил:
+
+- `frames_effective_rate` ≈ 100% (4083 fps при ожидаемых 4000)
+- GC stall `sdw max_lat = 389 ms` присутствует, но **не блокирует CAN drain**
+- `rb count=0` — ring buffer полностью дренируется даже во время stall
+- `err=0/0` — нет ошибок записи
+
+### Что реализовано
+
+- CubeMX: FreeRTOS CMSIS_V2, TIM6 timebase, heap_4 (8 KB)
+- `task_producer` (osPriorityNormal): CAN drain → can_map_process → shadow
+  update под osMutex, demo gen, USB CDC CLI, LED. `osDelay(1)` yield.
+- `task_sd` (osPriorityBelowNormal): `osDelayUntil` periodic snapshot
+  shadow → `lw_write_snapshot` → io_buf → f_write/f_sync/rotate.
+  Блокируется внутри SD_write при GC stall — только этот task стоит.
+- `SD_status` retry: `HAL_Delay(1)` → `osDelay(1)` (ключевая точка yield)
+- `SD_write`: `WriteStatus` polling → `osMessageQueueGet` (RTOS DMA
+  completion) + `osDelay(1)` в card-state-wait loop
+- `_FS_REENTRANT = 1` (CubeMX auto) — FatFS thread-safe через osSemaphore,
+  `cmd_get`/`cmd_ls`/`lw_pause` из task_producer безопасно конкурируют с task_sd
+- Handoff model: snapshot (rusEFI outputChannels pattern), без очереди
+
+### Ожидает
+
+- Long-term stress test на `demo_stress_64u16.ini` (≥ 2 ч)
+- Max stress test `demo_stress_128u16.ini` (128 U16 × 1 kHz) — см.
+  `docs/STRESS_TEST_128U16_PLAN.md`
+
+## Историческая позиция (до миграции)
 
 - **Problem is real**: 12% data loss на 2-часовом треке — неприемлемо
 - **Fix выбран**: миграция на FreeRTOS с выделенным SD writer task

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Universal CAN bus data logger. Reads CAN frames, maps them to parameters via config file on SD, writes MLVLG v2 binary logs (compatible with MegaLogViewer). Config-driven — no reflashing needed for different vehicles/protocols.
 
-**Current stage: MVP + debug output.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer with real Battery/Coolant/TPS data. USB CDC debug output working (printf over USB Virtual COM Port).
+**Current stage: MVP + FreeRTOS.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer with real Battery/Coolant/TPS data. USB CDC debug output working (printf over USB Virtual COM Port). FreeRTOS CMSIS_V2 with two tasks: `task_producer` (CAN drain + shadow update) and `task_sd` (SD writer, low priority) — SD GC stalls no longer block CAN capture. See `docs/SD_WRITER_DECOUPLING.md`.
 
 Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
@@ -26,14 +26,15 @@ firmware/
 │   ├── cfg_limits.h # Shared limits (CFG_MAX_FIELDS, CFG_MAX_CAN_IDS)
 │   └── ring_buf.*# SPSC ring buffer for CAN frames (done, 7 tests)
 ├── Src/          # HAL wrappers
-│   ├── main.c    # Init, main loop, glue
+│   ├── main.c    # Init, FreeRTOS tasks (task_producer + task_sd), glue
 │   ├── can_drv.c # CAN HAL → ring_buf (ISR callback)
 │   ├── log_writer.c # SD: read config, write MLG, LED, error handling
 │   ├── sd_write_dma.c # BSP override: DMA write fix (CubeMX-safe)
 │   ├── debug_out.c # USB CDC CLI (help/status/stream/config/ls/get/put), echo, buffered printf
+│   ├── freertos.c # FreeRTOS hooks (CubeMX generated, USER CODE sections)
 │   ├── usbd_*.c  # USB Device CDC (CubeMX generated)
 │   └── usb_device.c # USB Device init (CubeMX generated)
-├── Inc/          # Headers for Src/
+├── Inc/          # Headers for Src/ (incl. FreeRTOSConfig.h)
 ├── test/         # Host unit tests (Unity framework)
 │   ├── unity/
 │   ├── snapshots/ # Etalon .mlg files
@@ -86,6 +87,7 @@ cd firmware && make test
 
 - **Lib/** — no HAL includes, no CubeMX markers. Modules communicate via plain C structs.
 - **Src/** — CubeMX `USER CODE BEGIN/END` markers. Custom code must stay within markers.
+- **FreeRTOS** — CMSIS_V2, heap_4 (8 KB). Two tasks: `task_producer` (CAN + debug, osPriorityNormal) and `task_sd` (SD writer, osPriorityBelowNormal). Shadow buffer `field_values` guarded by `shadow_mutex`. HAL timebase on TIM6 (SysTick owned by FreeRTOS). All `HAL_Delay` converted to `osDelay` in Src/.
 - **MLVLG v2** — all data big-endian. `DisplayValue = (rawValue + transform) * scale`
 - **Config** — INI-like `config.ini` on SD card. See `docs/ARCHITECTURE.md` for format spec.
 

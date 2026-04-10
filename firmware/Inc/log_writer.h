@@ -9,8 +9,9 @@
 // Returns 0 on success, -1 on error (check lw_get_error).
 int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out);
 
-// Write a data block from shadow buffer if log interval elapsed.
-FRESULT lw_tick(const can_FieldValues* fv, uint32_t log_interval_ms);
+// Write one data block from a pre-copied snapshot of field values.
+// Called by task_sd at log_interval_ms cadence (no internal timing).
+FRESULT lw_write_snapshot(const uint8_t* values, size_t record_length);
 
 // Flush and close.
 void lw_stop(void);

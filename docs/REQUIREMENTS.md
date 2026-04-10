@@ -66,21 +66,21 @@
 - [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit
 - [ ] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах
 - [ ] Поддержка extended CAN ID (29-bit) в конфиге и can_map
-- [ ] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
+- [x] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
 - [ ] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):
-  - [ ] Проверять результат f_sync (сейчас игнорируется)
-  - [ ] Recovery вместо fatal: close → remount → new file → продолжить запись
+  - [x] Проверять результат f_sync — recovery при ошибке
+  - [x] Recovery вместо fatal: close → remount → new file → продолжить запись
   - [ ] Уменьшить интервал f_sync (100 → 10 блоков)
-  - [ ] Заменить HAL_Delay(1000) в recover_file() на non-blocking recovery (таймер + state machine)
-  - [ ] Счётчик recovery в статусе (rec=N)
+  - [x] Заменить HAL_Delay(1000) в recover_file() на non-blocking — osDelay (FreeRTOS, блокирует только task_sd)
+  - [x] Счётчик recovery в статусе (rec=N lastrec=FR_X@site)
   - [ ] Исследовать: SDIO clock divider, питание SD, другая карта
   - [ ] Убрать дублирование mlg_fields[256] (23KB RAM) — строить MLG header на лету из cfg_Config
-  - [ ] recover_file() блокирует main loop на 30с при вытащенной SD (f_mount → SD_CheckStatusWithTimeout)
+  - [x] recover_file() блокировала main loop на 30с — теперь блокирует только task_sd (osDelay), CAN drain продолжается
   - [ ] Stress test max pressure: 128 полей / 32 CAN ID / 4ms (65 KB/s) — CMD_RSP_TIMEOUT через ~48с.
     Карта (SanDisk Ultra 32GB) уходит в busy (GC), перестаёт отвечать на SDIO команды.
     hsd.ErrorCode=4 (CTIMEOUT), sd_ErrorCounters все нули (timeout в polling, не ISR).
     Recovery помогает временно (5 успешных), потом тоже падает.
-    f_expand(32MB, opt=0) медленный — блокирует main loop при каждом recovery/rotation.
+    f_expand(32MB, opt=0) медленный — блокирует task_sd при каждом recovery/rotation.
     Half-pressure (64 поля / 16 CAN ID / 4ms, ~32 KB/s) — тоже падает.
     Даже cansult 13 полей падает через ~80с на чистой карте без f_expand (стек 12KB).
     Проблема не в нагрузке — нужно исследовать DMA write path (sd_write_dma.c),
@@ -93,7 +93,7 @@
   - [x] Анализ: вероятно CMD12 stop при busy карте, см. docs/CMD_RSP_TIMEOUT.md
   - [x] SDIO error counters через HAL_SD_ErrorCallback + hal.ErrorCode в CDC status
   - [x] FAULT file на SD при фатальной ошибке (FAULT_NN.TXT с полной диагностикой)
-- [ ] **SD writer decoupling — миграция на FreeRTOS**
+- [x] **SD writer decoupling — миграция на FreeRTOS**
       (см. [SD_WRITER_DECOUPLING.md](SD_WRITER_DECOUPLING.md)):
   - корневая причина: blocking `SD_write` в main loop → GC stalls до 710 мс
     останавливают весь pipeline → **~12% потеря sample** на 2-часовом тесте
@@ -115,6 +115,10 @@
   - нужно поднять до ≥ 4096 (64 KB, покрывает 225 мс @ 18k fps) — минимум
   - комфорт: 8192 (128 KB, 450 мс) — не влезает в main SRAM без перераспределения
   - рассмотреть перенос `ring_Buffer` в CCM SRAM 64 KB (`0x10000000`): он не участвует в DMA, так что ограничение CCM не мешает; освободит main SRAM под io_buf / SDIO DMA
+- [ ] Оптимизация RAM (main SRAM занят на 127.9 из 128 KB, CCM 64 KB свободен):
+  - Убрать `mlg_fields[256]` (23 KB) — строить MLG header на лету из `cfg_Config` (см. выше)
+  - Перенести `config` (51.5 KB) и/или `can_rx_buf` (16 KB) в CCM SRAM — оба не участвуют в DMA
+  - Это разблокирует увеличение `RING_BUF_SIZE` и запас для будущих фич
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
 - [ ] Настройка max_file_size через config.ini (сейчас хардкод 512 МБ)
 - [ ] GPS модуль — геопозиция + точное реальное время
@@ -128,13 +132,12 @@
 Задачи:
 - [ ] Web-UI для генерации конфиг-файла (выбор CAN ID, настройка параметров)
 - [ ] Режим сниффера: запись raw CAN-трафика для анализа и создания маппинга
-- [ ] Импорт DBC-файлов (стандарт описания CAN-базы данных) → авто-генерация конфига
-- [x] USB-интерфейс для выгрузки логов (`get`) и загрузки конфигов (`put`) без извлечения SD
+- [ ] USB-интерфейс для выгрузки логов (`get`) и загрузки конфигов (`put`) без извлечения SD (частично реализовано для отладки, но нет пользовательского интерфейса)
+- [ ] WIFI ESP Module
 
 ## Ограничения и допущения
 
 - Целевая частота записи — максимально возможная на текущем железе
 - STM32F407 имеет 2 CAN-контроллера (CAN1, CAN2) — можно поддержать оба
-- SDIO в 1-bit mode — можно переключить на 4-bit для скорости
 - Формат конфига на первом этапе может быть простым (INI/CSV), оптимизируется позже
 - Логгер не передаёт данные — только пишет на SD
