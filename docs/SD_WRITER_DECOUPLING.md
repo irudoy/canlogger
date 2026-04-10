@@ -203,7 +203,7 @@ task_sd (osPriorityBelowNormal):
 
 ### Что реализовано
 
-- CubeMX: FreeRTOS CMSIS_V2, TIM6 timebase, heap_4 (8 KB)
+- CubeMX: FreeRTOS CMSIS_V2, TIM6 timebase, heap_4 (16 KB)
 - `task_producer` (osPriorityNormal): CAN drain → can_map_process → shadow
   update под osMutex, demo gen, USB CDC CLI, LED. `osDelay(1)` yield.
 - `task_sd` (osPriorityBelowNormal): `osDelayUntil` periodic snapshot

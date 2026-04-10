@@ -69,7 +69,7 @@ const osThreadAttr_t defaultTask_attributes = {
 /* USER CODE BEGIN PV */
 volatile uint8_t lw_shutdown = 0;
 static ring_Buffer can_rx_buf;
-static cfg_Config config;
+static cfg_Config config __attribute__((section(".ccmram")));
 static can_FieldValues field_values;
 static uint32_t can_frames_processed = 0;
 static int init_ok = 0;
@@ -88,7 +88,7 @@ static const osMutexAttr_t shadow_mutex_attr = {
 osThreadId_t sdTaskHandle;
 static const osThreadAttr_t sdTask_attributes = {
   .name = "sdTask",
-  .stack_size = 2048,
+  .stack_size = 4096,
   .priority = (osPriority_t) osPriorityBelowNormal,
 };
 void SdTaskEntry(void *argument);

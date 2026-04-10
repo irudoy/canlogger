@@ -87,7 +87,8 @@ cd firmware && make test
 
 - **Lib/** — no HAL includes, no CubeMX markers. Modules communicate via plain C structs.
 - **Src/** — CubeMX `USER CODE BEGIN/END` markers. Custom code must stay within markers.
-- **FreeRTOS** — CMSIS_V2, heap_4 (8 KB). Two tasks: `task_producer` (CAN + debug, osPriorityNormal) and `task_sd` (SD writer, osPriorityBelowNormal). Shadow buffer `field_values` guarded by `shadow_mutex`. HAL timebase on TIM6 (SysTick owned by FreeRTOS). All `HAL_Delay` converted to `osDelay` in Src/.
+- **FreeRTOS** — CMSIS_V2, heap_4 (16 KB). Two tasks: `task_producer` (CAN + debug, osPriorityNormal, 2 KB stack) and `task_sd` (SD writer, osPriorityBelowNormal, 4 KB stack). Shadow buffer `field_values` guarded by `shadow_mutex`. HAL timebase on TIM6 (SysTick owned by FreeRTOS). All `HAL_Delay` converted to `osDelay` in Src/.
+- **RAM layout** — `config` (52.7 KB) in CCM SRAM via `__attribute__((section(".ccmram")))`; `mlg_fields` removed (MLG header built on-the-fly from `cfg_Config`); `ring_Buffer` (64 KB) in main SRAM. Main SRAM ~54/128 KB used, CCM ~53/64 KB used.
 - **MLVLG v2** — all data big-endian. `DisplayValue = (rawValue + transform) * scale`
 - **Config** — INI-like `config.ini` on SD card. See `docs/ARCHITECTURE.md` for format spec.
 

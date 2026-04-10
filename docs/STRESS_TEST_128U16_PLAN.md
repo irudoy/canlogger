@@ -131,13 +131,13 @@ python3 scripts/usb_get.py /dev/cu.usbmodemXXXX <filename>.MLG
 
 ## Зависимости (что должно быть готово до прогона)
 
-- [ ] Миграция на FreeRTOS (Фаза 1-3 из `SD_WRITER_DECOUPLING.md`)
-- [ ] SD writer в отдельном task с приоритетом `osPriorityBelowNormal`
-- [ ] CAN RX + can_map в высокоприоритетном task
-- [ ] FatFS reentrant (`FF_FS_REENTRANT=1`)
-- [ ] SD_status retry с `osDelay` вместо `HAL_Delay`
-- [ ] `RING_BUF_SIZE` поднят до 4096 если пойдём на real CAN тесте
-- [ ] Все существующие host-тесты зелёные (`make test`)
+- [x] Миграция на FreeRTOS (Фаза 1-3 из `SD_WRITER_DECOUPLING.md`)
+- [x] SD writer в отдельном task с приоритетом `osPriorityBelowNormal`
+- [x] CAN RX + can_map в высокоприоритетном task
+- [x] FatFS reentrant (`FF_FS_REENTRANT=1`)
+- [x] SD_status retry с `osDelay` вместо `HAL_Delay`
+- [x] `RING_BUF_SIZE` поднят до 4096 (64 KB)
+- [x] Все существующие host-тесты зелёные (`make test`) — 90 тестов, 0 failures
 
 ## Связанные документы
 

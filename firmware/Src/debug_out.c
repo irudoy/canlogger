@@ -70,7 +70,7 @@ int __io_putchar(int ch) {
 }
 
 // --- Universal CAN frame capture ---
-#define CAN_SNIFF_MAX 16
+#define CAN_SNIFF_MAX 32
 #define CAN_SNIFF_TIMEOUT_MS 2000
 
 typedef struct {

@@ -164,7 +164,6 @@ static int SD_CheckStatusWithTimeout(uint32_t timeout)
     {
       return 0;
     }
-    osDelay(1);
   }
 
   return -1;

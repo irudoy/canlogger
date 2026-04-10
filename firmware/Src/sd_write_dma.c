@@ -15,6 +15,7 @@
 #include "bsp_driver_sd.h"
 #include "stm32f4xx_ll_sdmmc.h"
 #include "sd_write_dma.h"
+#include "cmsis_os2.h"
 
 extern SD_HandleTypeDef hsd;
 
@@ -176,4 +177,22 @@ uint8_t BSP_SD_WriteBlocks_DMA(uint32_t *pData, uint32_t WriteAddr, uint32_t Num
   hsd.Instance->DCTRL  = SDIO_DCTRL_DMAEN | SDIO_DCTRL_DTEN | SDIO_DATABLOCK_SIZE_512B;
 
   return MSD_OK;
+}
+
+/*
+ * Override __weak BSP_SD_GetCardState with yield.
+ * sd_diskio.c polls this in tight loops (SD_CheckStatusWithTimeout,
+ * SD_Write/SD_Read card-state wait). Without yield, task_sd busy-waits
+ * during GC stalls and starves other tasks. With osDelay(1) on BUSY,
+ * the scheduler runs task_producer every ms even during a stall.
+ *
+ * Survives CubeMX regeneration because this file is ours (not generated).
+ */
+uint8_t BSP_SD_GetCardState(void)
+{
+  if (HAL_SD_GetCardState(&hsd) == HAL_SD_CARD_TRANSFER)
+    return SD_TRANSFER_OK;
+
+  osDelay(1);
+  return SD_TRANSFER_BUSY;
 }

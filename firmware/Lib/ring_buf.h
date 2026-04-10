@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define RING_BUF_SIZE 1024  // must be power of 2
+#define RING_BUF_SIZE 4096  // must be power of 2
 
 typedef struct {
   uint32_t id;

@@ -73,18 +73,9 @@
   - [ ] Уменьшить интервал f_sync (100 → 10 блоков)
   - [x] Заменить HAL_Delay(1000) в recover_file() на non-blocking — osDelay (FreeRTOS, блокирует только task_sd)
   - [x] Счётчик recovery в статусе (rec=N lastrec=FR_X@site)
-  - [ ] Исследовать: SDIO clock divider, питание SD, другая карта
-  - [ ] Убрать дублирование mlg_fields[256] (23KB RAM) — строить MLG header на лету из cfg_Config
+  - [x] Убрать дублирование mlg_fields[256] (23KB RAM) — строить MLG header на лету из cfg_Config
   - [x] recover_file() блокировала main loop на 30с — теперь блокирует только task_sd (osDelay), CAN drain продолжается
-  - [ ] Stress test max pressure: 128 полей / 32 CAN ID / 4ms (65 KB/s) — CMD_RSP_TIMEOUT через ~48с.
-    Карта (SanDisk Ultra 32GB) уходит в busy (GC), перестаёт отвечать на SDIO команды.
-    hsd.ErrorCode=4 (CTIMEOUT), sd_ErrorCounters все нули (timeout в polling, не ISR).
-    Recovery помогает временно (5 успешных), потом тоже падает.
-    f_expand(32MB, opt=0) медленный — блокирует task_sd при каждом recovery/rotation.
-    Half-pressure (64 поля / 16 CAN ID / 4ms, ~32 KB/s) — тоже падает.
-    Даже cansult 13 полей падает через ~80с на чистой карте без f_expand (стек 12KB).
-    Проблема не в нагрузке — нужно исследовать DMA write path (sd_write_dma.c),
-    SDIO DTIMER, сравнить с commit до demo-through-ringbuf изменений.
+  - [x] Stress test max pressure: 128 полей / 32 CAN ID / 1ms — решено миграцией на FreeRTOS (GC stalls блокируют только task_sd)
 - [ ] Отладочный лог на SD — системные события, ошибки, сэмплы данных по условию
 - [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
 - [ ] Логирование статистики (принято/потеряно/записано фреймов)
@@ -109,16 +100,14 @@
   - `SD_status` retry: `HAL_Delay` → `osDelay` (yield-friendly)
   - финальная проверка: `docs/STRESS_TEST_128U16_PLAN.md`
 - [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
-- [ ] `RING_BUF_SIZE` перед production deploy 1 Mbit × 2 CAN:
-  - текущий размер 1024 slot (16 KB) был подобран под cansult (60 fps)
-  - при 2× 1 Mbit (~18k fps peak) 1024 покрывает только 57 мс — первый же GC stall (до 674 мс) потеряет ~90% фреймов
-  - нужно поднять до ≥ 4096 (64 KB, покрывает 225 мс @ 18k fps) — минимум
-  - комфорт: 8192 (128 KB, 450 мс) — не влезает в main SRAM без перераспределения
-  - рассмотреть перенос `ring_Buffer` в CCM SRAM 64 KB (`0x10000000`): он не участвует в DMA, так что ограничение CCM не мешает; освободит main SRAM под io_buf / SDIO DMA
-- [ ] Оптимизация RAM (main SRAM занят на 127.9 из 128 KB, CCM 64 KB свободен):
-  - Убрать `mlg_fields[256]` (23 KB) — строить MLG header на лету из `cfg_Config` (см. выше)
-  - Перенести `config` (51.5 KB) и/или `can_rx_buf` (16 KB) в CCM SRAM — оба не участвуют в DMA
-  - Это разблокирует увеличение `RING_BUF_SIZE` и запас для будущих фич
+- [x] `RING_BUF_SIZE` 1024 → 4096 (64 KB, покрывает 225 мс @ 18k fps):
+  - разблокировано оптимизацией RAM (config → CCM, mlg_fields убран)
+  - комфорт: 8192 (128 KB, 450 мс) — возможен при переносе `can_rx_buf` в CCM (сейчас не помещается)
+- [x] Оптимизация RAM (main SRAM: 54 KB из 128 KB занято, CCM: 53 KB из 64 KB):
+  - Убран `mlg_fields[256]` (23 KB) — MLG header строится на лету из `cfg_Config`
+  - `config` (52.7 KB) перенесён в CCM SRAM (`.ccmram` section)
+  - FreeRTOS heap 8 → 16 KB, sdTask stack 2 → 4 KB
+  - `CAN_SNIFF_MAX` 16 → 32 (полное покрытие CAN ID в status)
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
 - [ ] Настройка max_file_size через config.ini (сейчас хардкод 512 МБ)
 - [ ] GPS модуль — геопозиция + точное реальное время

@@ -41,9 +41,8 @@ static const char* last_rec_at = "";
 static uint8_t block_counter = 0;
 static uint32_t last_log_tick = 0;
 
-// Cached MLG fields (built from config at init)
-static mlg_Field mlg_fields[CFG_MAX_FIELDS];
-static uint16_t num_mlg_fields = 0;
+// Pointer to config (set at init, used for MLG header writing)
+static const cfg_Config* cached_cfg = NULL;
 static size_t record_length = 0;
 
 static uint8_t write_buf[512] __attribute__((aligned(4)));
@@ -64,7 +63,8 @@ static FRESULT recover_file(void);
 static FRESULT handle_error(FRESULT res, const char* at);
 
 static FRESULT write_mlg_file_header(void) {
-  uint32_t data_begin = MLG_HEADER_SIZE + num_mlg_fields * MLG_FIELD_SIZE;
+  uint16_t nf = cached_cfg->num_fields;
+  uint32_t data_begin = MLG_HEADER_SIZE + nf * MLG_FIELD_SIZE;
 
   DateTime dt;
   get_current_datetime(&dt);
@@ -76,7 +76,7 @@ static FRESULT write_mlg_file_header(void) {
     .info_data_start = 0,
     .data_begin_index = data_begin,
     .record_length = (uint16_t)record_length,
-    .num_fields = num_mlg_fields
+    .num_fields = nf
   };
 
   int ret = mlg_write_header(write_buf, sizeof(write_buf), &header);
@@ -86,8 +86,20 @@ static FRESULT write_mlg_file_header(void) {
   FRESULT res = f_write(&log_file_obj, write_buf, ret, &bw);
   if (res != FR_OK) return res;
 
-  for (int i = 0; i < num_mlg_fields; i++) {
-    ret = mlg_write_field(write_buf, sizeof(write_buf), &mlg_fields[i]);
+  for (int i = 0; i < nf; i++) {
+    const cfg_Field* cf = &cached_cfg->fields[i];
+    mlg_Field mf;
+    memset(&mf, 0, sizeof(mf));
+    mf.type = cf->type;
+    mf.display_style = cf->display_style;
+    mf.scale = cf->scale;
+    mf.transform = cf->offset;
+    mf.digits = cf->digits;
+    strncpy(mf.name, cf->name, MLG_FIELD_NAME_SIZE - 1);
+    strncpy(mf.units, cf->units, MLG_FIELD_UNITS_SIZE - 1);
+    strncpy(mf.category, cf->category, MLG_FIELD_CATEGORY_SIZE - 1);
+
+    ret = mlg_write_field(write_buf, sizeof(write_buf), &mf);
     if (ret < 0) return FR_INT_ERR;
     res = f_write(&log_file_obj, write_buf, ret, &bw);
     if (res != FR_OK) return res;
@@ -126,9 +138,8 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
     return -1;
   }
 
-  // Build MLG fields from config
-  num_mlg_fields = cfg_out->num_fields;
-  can_map_build_mlg_fields(cfg_out, mlg_fields, CFG_MAX_FIELDS);
+  // Cache config pointer for MLG header writing
+  cached_cfg = cfg_out;
 
   // Init field values shadow buffer
   if (can_map_init(fv_out, cfg_out) != 0) {

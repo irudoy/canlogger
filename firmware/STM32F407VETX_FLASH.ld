@@ -39,7 +39,7 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 
-_Min_Heap_Size = 0x200; /* libc heap (FreeRTOS uses its own heap_4) */
+_Min_Heap_Size = 0x200; /* libc heap unused — FreeRTOS uses heap_4 */
 _Min_Stack_Size = 0x400; /* ISR + pre-scheduler stack (tasks have own stacks) */
 
 /* Memories definition */
