@@ -64,7 +64,7 @@
 Задачи:
 - [ ] Graceful shutdown при пропадании питания (обнаружение + запись буфера + f_close)
 - [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit
-- [ ] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах
+- [x] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах, VBAT батарейка на плате
 - [ ] Поддержка extended CAN ID (29-bit) в конфиге и can_map
 - [x] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
 - [ ] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):
