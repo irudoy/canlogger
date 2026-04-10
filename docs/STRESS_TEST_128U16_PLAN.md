@@ -1,12 +1,8 @@
 # Final Max Stress Test — 128 U16 @ 1 kHz
 
-**Статус: отложен до завершения миграции на FreeRTOS
-(см. `docs/SD_WRITER_DECOUPLING.md`).**
-
-Этот документ фиксирует план финального stress-теста максимальной
-нагрузки, который будет прогнан **после** архитектурного фикса
-SD writer decoupling. Цель — подтвердить что новый pipeline держит
-теоретический максимум без потерь данных.
+**Статус: ПРОЙДЕН 2026-04-10.** Миграция на FreeRTOS завершена,
+гибридный стресс-тест (13 cansult + 115 demo = 128 U16 @ 1 kHz)
+отработал 2ч 27м без ошибок. Результаты ниже.
 
 ## Конфиг
 
@@ -118,6 +114,36 @@ python3 scripts/usb_get.py /dev/cu.usbmodemXXXX <filename>.MLG
 #    - Нет flat-line регионов
 #    - Timestamps равномерные
 ```
+
+## Результаты прогона (2026-04-10)
+
+Конфиг: гибридный — 13 cansult (0x640, 0x665, 0x666, 0x667) + 115 demo (0xD00–0xD1C) = 128 fields, interval_ms=1, can_bitrate=500000.
+
+```
+uptime=8851s frames=65078134 fields=128 init=1 err=0/0
+sdw: tot=431953 lat=12/950 scratch=96911
+sdst: calls=225529 fail=3 rescued=3 hard=0 maxret=4ms
+rb: count=0 overrun=0
+can: 32 ids bus=active tec=0 rec=0 lec=none
+files=20
+```
+
+| Метрика | Результат | Цель | |
+|---------|-----------|------|---|
+| uptime | **2ч 27м** (8851s) | ≥1ч | ✓ |
+| err | 0/0 | 0/0 | ✓ |
+| rec | 0 | 0 | ✓ |
+| sdst hard | 0 | 0 | ✓ |
+| sdst fail/rescued | 3/3 (transient, max 4ms) | — | ✓ |
+| rb count | 0 | <50 | ✓ |
+| overrun | 0 | 0 | ✓ |
+| sdw max_lat | 950 ms | — | ожидаемо (SD GC stall, блокирует только task_sd) |
+| files | 20 | ротация работает | ✓ |
+| bus | active, tec=0 rec=0 | — | ✓ |
+
+MLG файлы проверены в MegaLogViewer/UltraLog — открываются корректно.
+
+Baseline comparison (до FreeRTOS, 64U16@250Hz): `frames_effective_rate` был 87% из-за blocking SD_write в main loop. После FreeRTOS: err=0, rb=0, overrun=0 — pipeline полностью развязан, потерь нет.
 
 ## Что делать если не пройдёт
 
