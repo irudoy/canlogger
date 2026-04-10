@@ -14,9 +14,10 @@ SD writer decoupling. Цель — подтвердить что новый pipe
 
 ```
 interval_ms=1           # 1000 Hz log rate
-can_bitrate=1000000     # информативно для demo; 2× 1 Mbit для real
-128 fields × U16
-32 CAN IDs (0xD00..0xD1F, по 4 поля на фрейм)
+can_bitrate=500000      # 500 kbit/s для совместимости с cansult
+13 cansult fields (real CAN: 0x640, 0x665, 0x666, 0x667)
+115 demo fields × U16 (0xD00..0xD1C, по 4 поля на фрейм)
+= 128 fields total (hybrid: real CAN + demo)
 ```
 
 ## Расчётная нагрузка на компоненты

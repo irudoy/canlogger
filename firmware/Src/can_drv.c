@@ -5,6 +5,7 @@
 extern CAN_HandleTypeDef hcan1;
 
 static ring_Buffer* rx_ring_buf = NULL;
+static volatile uint32_t rx_overrun_count = 0;
 
 // APB1 clock = 42 MHz. Use TQ=21 (BS1=15, BS2=5) for all standard bitrates.
 // Prescaler = APB1 / (bitrate * TQ)
@@ -104,7 +105,8 @@ int can_drv_start(void) {
   HAL_NVIC_EnableIRQ(CAN1_RX0_IRQn);
 
   if (HAL_CAN_Start(&hcan1) != HAL_OK) return -1;
-  if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) return -1;
+  if (HAL_CAN_ActivateNotification(&hcan1,
+        CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_RX_FIFO0_FULL) != HAL_OK) return -1;
   return 0;
 }
 
@@ -125,4 +127,24 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     frame.dlc = rx_header.DLC;
     ring_buf_push(rx_ring_buf, &frame);
   }
+}
+
+// FIFO0 overrun (message lost because FIFO was full)
+void HAL_CAN_RxFifo0FullCallback(CAN_HandleTypeDef *hcan) {
+  rx_overrun_count++;
+}
+
+void can_drv_get_diag(can_Diag* out) {
+  uint32_t esr = hcan1.Instance->ESR;
+  out->tec = (esr >> 16) & 0xFF;
+  out->rec = (esr >> 24) & 0xFF;
+  // Bus state from ESR bits [1:0] (BOFF=bit1, EPVF=bit0)
+  if (esr & CAN_ESR_BOFF)
+    out->bus_state = 2; // Bus-Off
+  else if (esr & CAN_ESR_EPVF)
+    out->bus_state = 1; // Error Passive
+  else
+    out->bus_state = 0; // Error Active
+  out->lec = (esr >> 4) & 0x07;
+  out->rx_overrun = rx_overrun_count;
 }

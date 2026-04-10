@@ -2,6 +2,7 @@
 #include "usbd_cdc_if.h"
 #include "sd_write_dma.h"
 #include "sd_diskio_counters.h"
+#include "can_drv.h"
 #include "stm32f4xx_hal.h"
 #include "cmsis_os2.h"
 #include "fatfs.h"
@@ -279,8 +280,14 @@ static void cmd_status(const ring_Buffer* rb) {
     printf("sd: error reading\r\n");
   }
 
-  // CAN IDs seen
-  printf("can: %u ids\r\n", can_sniff_count);
+  // CAN bus diagnostics
+  static const char* bus_states[] = {"active", "passive", "bus-off"};
+  static const char* lec_names[] = {"none", "stuff", "form", "ack", "bit_rec", "bit_dom", "crc", "?"};
+  can_Diag cd;
+  can_drv_get_diag(&cd);
+  printf("can: %u ids bus=%s tec=%u rec=%u lec=%s overrun=%lu\r\n",
+         can_sniff_count, bus_states[cd.bus_state < 3 ? cd.bus_state : 0],
+         cd.tec, cd.rec, lec_names[cd.lec < 7 ? cd.lec : 7], cd.rx_overrun);
   for (uint8_t i = 0; i < can_sniff_count; i++) {
     can_sniff_entry_t *e = &can_sniff[i];
     uint32_t age = now - e->last_seen;

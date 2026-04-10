@@ -50,7 +50,7 @@ sdw: tot=7461 lat=12/86 scratch=1548
 sdst: calls=13180 fail=6 rescued=6 hard=0 maxret=4ms last_raw=0
 rb: count=0 head=432 tail=432
 sd: 23789888KB free / 31150208KB total
-can: 16 ids
+can: 32 ids bus=active tec=0 rec=0 lec=none overrun=0
   0xD00[8] 1ms ago: 28 10 C7 13 4C 04 5A 14
   ...
 ```
@@ -79,7 +79,7 @@ can: 16 ids
 | `sdst` | SD_status wrapper: `calls` = всего вызовов, `fail` = transient PROGRAMMING событий, `rescued` = вылечены retry loop'ом, `hard` = превысили SD_STATUS_RETRY_MS, `maxret` = максимальное время retry (мс), `last_raw` = HAL card state на последнем hard fail |
 | `rb` | Ring buffer: count = фреймов в очереди, head/tail = позиции |
 | `sd` | Свободное / общее место на SD карте |
-| `can` | Количество уникальных CAN ID на шине |
+| `can` | CAN диагностика: кол-во ID, `bus` = active/passive/bus-off, `tec`/`rec` = error counters, `lec` = last error code (none/stuff/form/ack/bit_rec/bit_dom/crc), `overrun` = FIFO0 overflow |
 | `0x640[8]` | CAN ID, DLC, сырые байты, время с последнего обновления |
 
 ### `stream`
