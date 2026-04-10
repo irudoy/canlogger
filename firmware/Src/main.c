@@ -113,6 +113,7 @@ static void MX_NVIC_Init(void);
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if (GPIO_Pin == USR_BTN_3_K1_Pin) {
     lw_shutdown = 1;
+    HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, GPIO_PIN_SET); // D2 off (active-low)
   }
 }
 /* USER CODE END 0 */
