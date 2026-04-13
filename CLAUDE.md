@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Universal CAN bus data logger. Reads CAN frames, maps them to parameters via config file on SD, writes MLVLG v2 binary logs (compatible with MegaLogViewer). Config-driven — no reflashing needed for different vehicles/protocols.
 
-**Current stage: MVP + FreeRTOS.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer with real Battery/Coolant/TPS data. USB CDC debug output working (printf over USB Virtual COM Port). FreeRTOS CMSIS_V2 with two tasks: `task_producer` (CAN drain + shadow update) and `task_sd` (SD writer, low priority) — SD GC stalls no longer block CAN capture. See `docs/SD_WRITER_DECOUPLING.md`.
+**Current stage: v1.0 in progress.** Full E2E verified: Nissan ECU → cansult → CAN → canlogger → SD → MegaLogViewer. FreeRTOS CMSIS_V2: `task_producer` + `task_sd` (SD GC stalls isolated to task_sd, see `docs/SD_WRITER_DECOUPLING.md`). AEM UEGO 30-0300 supported via 29-bit extended CAN. RTC persists across reset/power-loss (LSE + CR1220 + INITS flag). Persistent fault log in BKP regs (CDC `lastfault`). Graceful shutdown firmware ready (VIN_SENSE ADC + armed debounce), awaits hat with supercap.
 
 Full requirements and roadmap: `docs/REQUIREMENTS.md`
 Architecture and module design: `docs/ARCHITECTURE.md`
@@ -28,9 +28,11 @@ firmware/
 ├── Src/          # HAL wrappers
 │   ├── main.c    # Init, FreeRTOS tasks (task_producer + task_sd), glue
 │   ├── can_drv.c # CAN HAL → ring_buf (ISR callback)
-│   ├── log_writer.c # SD: read config, write MLG, LED, error handling
+│   ├── log_writer.c # SD: read config, write MLG (LFN names: 2026-04-12_HH-MM-SS_NN.mlg), LED, error handling, SD mount retry
 │   ├── sd_write_dma.c # BSP override: DMA write fix (CubeMX-safe)
-│   ├── debug_out.c # USB CDC CLI (help/status/stream/config/ls/get/put), echo, buffered printf
+│   ├── vin_sense.c # VIN ADC polling + graceful shutdown (armed debounce)
+│   ├── bkp_log.c # Persistent fault log in RTC backup registers (session counter + last fault, survives reset/power loss)
+│   ├── debug_out.c # USB CDC CLI (help/status/stream/config/ls/get/put/settime/lastfault/fault/stop), echo, buffered printf
 │   ├── freertos.c # FreeRTOS hooks (CubeMX generated, USER CODE sections)
 │   ├── usbd_*.c  # USB Device CDC (CubeMX generated)
 │   └── usb_device.c # USB Device init (CubeMX generated)
@@ -38,7 +40,7 @@ firmware/
 ├── test/         # Host unit tests (Unity framework)
 │   ├── unity/
 │   ├── snapshots/ # Etalon .mlg files
-│   └── cansult_config.ini # Reference config for E2E testing
+│   └── config.ini # Reference config (cansult + AEM UEGO 30-0300) for E2E testing
 ├── mlg-test/     # Node.js .mlg file validator
 └── Makefile      # Build/test/flash/debug commands
 docs/
@@ -51,7 +53,7 @@ docs/
 ## Commands (from `firmware/`)
 
 ```bash
-make build        # RTC time gen + CubeIDE headless build → Debug/canlogger.elf
+make build        # CubeIDE headless build → Debug/canlogger.elf
 make clean        # Clean rebuild
 make test         # Run host unit tests (Unity)
 make flash        # Build + flash via ST-Link SWD
@@ -90,7 +92,11 @@ cd firmware && make test
 - **FreeRTOS** — CMSIS_V2, heap_4 (16 KB). Two tasks: `task_producer` (CAN + debug, osPriorityNormal, 2 KB stack) and `task_sd` (SD writer, osPriorityBelowNormal, 4 KB stack). Shadow buffer `field_values` guarded by `shadow_mutex`. HAL timebase on TIM6 (SysTick owned by FreeRTOS). All `HAL_Delay` converted to `osDelay` in Src/.
 - **RAM layout** — `config` (52.7 KB) in CCM SRAM via `__attribute__((section(".ccmram")))`; `mlg_fields` removed (MLG header built on-the-fly from `cfg_Config`); `ring_Buffer` (64 KB) in main SRAM. Main SRAM ~54/128 KB used, CCM ~53/64 KB used.
 - **MLVLG v2** — all data big-endian. `DisplayValue = (rawValue + transform) * scale`
-- **Config** — INI-like `config.ini` on SD card. See `docs/ARCHITECTURE.md` for format spec.
+- **Config** — INI-like `config.ini` on SD card. See `docs/CONFIG_GUIDE.md` and `docs/ARCHITECTURE.md` for format spec. Supports extended (29-bit) CAN IDs via explicit `is_extended = 1` (AEMnet 0x180) and sub-byte (1–7 bit) fields via `start_bit` + `bit_length` (ECU status bits on 0x668).
+- **RTC** — LSE (32.768 kHz Y2 crystal) + CR1220 on VBAT. Persists across reset/flash via `RTC_FLAG_INITS` check. Set via CDC `settime YYYY-MM-DD HH:MM:SS` or GPS (TODO). File names: `2026-04-12_HH-MM-SS_NN.mlg` (LFN), suffix `_NN` avoids collisions via `FA_CREATE_NEW`.
+- **FatFS** — `_USE_LFN = 2` (stack buffer), long filenames enabled. Single-task access (task_sd only), `_FS_REENTRANT = 0`.
+- **BKP registers** — `Src/bkp_log.c`: DR1 session counter, DR2 fault session, DR3 packed fault info. Persistent across reset/power loss while VBAT alive. CDC `lastfault`.
+- **BOR Level 3** (2.70V) in Option Bytes — MCU held in reset until Vdd stable, avoids bad SD init on slow supply rise.
 
 ## Hardware
 

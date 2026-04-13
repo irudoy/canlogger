@@ -28,17 +28,27 @@ picocom /dev/cu.usbmodemXXXX -b 115200
 | `config` | Показать загруженный конфиг |
 | `ls` | Список файлов на SD с размерами |
 | `get <f>` | Скачать файл с SD (используйте `usb_get.py`) |
+| `put <f> N` | Загрузить N байт в файл на SD |
+| `fault` | Симулировать fatal error (записать FAULT файл) |
+| `stop` | Безопасно закрыть SD (перед прошивкой) |
+| `settime YYYY-MM-DD HH:MM:SS` | Установить RTC (переживёт reset пока VBAT жив) |
+| `lastfault` | Последний fault из BKP регистров + session counter |
 
 ### `help`
 
 ```
 Commands:
-  help    - this message
-  status  - system status
-  stream  - toggle periodic output
-  config  - show loaded config
-  ls      - list MLG files on SD
-  get <f> - download file (use usb_get.py)
+  help      - this message
+  status    - system status
+  stream    - toggle periodic output
+  config    - show loaded config
+  ls        - list MLG files on SD
+  get <f>   - download file (use usb_get.py)
+  put <f> N - upload N bytes to file
+  fault     - simulate fatal error, write FAULT file
+  stop      - close SD safely (before flash)
+  settime YYYY-MM-DD HH:MM:SS - set RTC (survives reset via VBAT)
+  lastfault - show last fault from BKP regs (persistent)
 ```
 
 ### `status`

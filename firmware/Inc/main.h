@@ -66,7 +66,7 @@ void Error_Handler(void);
 #define LED_2_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
-
+#define VIN_SENSE_THRESHOLD_MV 2000   /* ~4.0V DC-DC out (divider 1:2) */
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

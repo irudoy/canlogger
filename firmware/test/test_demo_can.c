@@ -329,15 +329,15 @@ void test_stress_128_u16(void) {
 
   TEST_ASSERT_EQUAL(CFG_OK, rc);
   TEST_ASSERT_EQUAL(128, cfg.num_fields);
-  TEST_ASSERT_EQUAL(32, cfg.num_can_ids);
+  TEST_ASSERT_EQUAL(33, cfg.num_can_ids);
   TEST_ASSERT_EQUAL(1, cfg.demo_gen.use_ring_buf);
 
   ring_Buffer rb;
   ring_buf_init(&rb);
 
-  // Pack at t=500ms
+  // Pack at t=500ms — only demo CAN IDs get packed (29 of 33, 4 are real cansult)
   int n = demo_pack_can_frames(&cfg, &rb, 500);
-  TEST_ASSERT_EQUAL(32, n); // 32 CAN IDs → 32 frames
+  TEST_ASSERT_EQUAL(29, n);
 
   // Drain all frames through can_map_process
   can_FieldValues fv;
@@ -349,7 +349,7 @@ void test_stress_128_u16(void) {
     can_map_process(&fv, &cfg, &frame);
     total++;
   }
-  TEST_ASSERT_EQUAL(32, total);
+  TEST_ASSERT_EQUAL(29, total); // 29 demo CAN IDs (4 cansult not packed)
 
   // Verify all 128 fields have values in 0-65000 range
   size_t offset = 0;

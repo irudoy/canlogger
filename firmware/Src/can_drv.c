@@ -42,11 +42,12 @@ static int configure_timing(uint32_t bitrate) {
 // STM32F4 CAN1 has 14 filter banks (0-13).
 // If num_ids == 0 or > 14: accept-all filter.
 // Otherwise: one filter per ID in ID-list mode.
-static int configure_filters(const uint32_t* can_ids, uint16_t num_ids) {
+static int configure_filters(const uint32_t* can_ids, const uint8_t* ext_flags, uint16_t num_ids) {
   CAN_FilterTypeDef filter;
 
   if (num_ids == 0 || num_ids > 28) {
-    // Accept-all: mask mode, all zeros
+    // Accept-all: mask mode, all zeros — passes std + ext regardless of flags.
+    (void)ext_flags;
     filter.FilterBank = 0;
     filter.FilterMode = CAN_FILTERMODE_IDMASK;
     filter.FilterScale = CAN_FILTERSCALE_32BIT;
@@ -68,11 +69,25 @@ static int configure_filters(const uint32_t* can_ids, uint16_t num_ids) {
     filter.FilterBank = i;
     filter.FilterMode = CAN_FILTERMODE_IDLIST;
     filter.FilterScale = CAN_FILTERSCALE_32BIT;
-    // STM32 CAN filter register format: StdId is in bits [31:21]
-    filter.FilterIdHigh = (id1 << 5) & 0xFFFF;
-    filter.FilterIdLow = 0x0000;
-    filter.FilterMaskIdHigh = (id2 << 5) & 0xFFFF;
-    filter.FilterMaskIdLow = 0x0000;
+    // STM32 CAN filter register format (32-bit scale):
+    //   StdId: FilterHigh = StdId<<5, FilterLow = 0 (IDE=0)
+    //   ExtId: FilterHigh = ExtId>>13, FilterLow = (ExtId<<3)|0x04 (IDE=1)
+    uint8_t ext1 = ext_flags[i * 2];
+    uint8_t ext2 = (i * 2 + 1 < num_ids) ? ext_flags[i * 2 + 1] : ext1;
+    if (ext1) {
+      filter.FilterIdHigh = (id1 >> 13) & 0xFFFF;
+      filter.FilterIdLow = ((id1 << 3) | 0x04) & 0xFFFF;
+    } else {
+      filter.FilterIdHigh = (id1 << 5) & 0xFFFF;
+      filter.FilterIdLow = 0x0000;
+    }
+    if (ext2) {
+      filter.FilterMaskIdHigh = (id2 >> 13) & 0xFFFF;
+      filter.FilterMaskIdLow = ((id2 << 3) | 0x04) & 0xFFFF;
+    } else {
+      filter.FilterMaskIdHigh = (id2 << 5) & 0xFFFF;
+      filter.FilterMaskIdLow = 0x0000;
+    }
     filter.FilterFIFOAssignment = CAN_RX_FIFO0;
     filter.FilterActivation = ENABLE;
     filter.SlaveStartFilterBank = 14;
@@ -94,7 +109,7 @@ int can_drv_init(ring_Buffer* rb, const cfg_Config* cfg) {
   rx_ring_buf = rb;
 
   if (configure_timing(cfg->can_bitrate) != 0) return -1;
-  if (configure_filters(cfg->can_ids, cfg->num_can_ids) != 0) return -1;
+  if (configure_filters(cfg->can_ids, cfg->can_ids_extended, cfg->num_can_ids) != 0) return -1;
 
   return 0;
 }

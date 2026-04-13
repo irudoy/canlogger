@@ -14,9 +14,9 @@ STLINK_SN    := 2C2404147116303030303032
 
 # --- Build ---
 
-.PHONY: build clean rtc test flash erase reset debug gdb-server
+.PHONY: build clean test flash erase reset debug gdb-server
 
-build: rtc
+build:
 	$(CUBEIDE) --launcher.suppressErrors -nosplash \
 		-application org.eclipse.cdt.managedbuilder.core.headlessbuild \
 		-data $(WS) \
@@ -29,9 +29,6 @@ clean:
 		-data $(WS) \
 		-import $(PROJECT_DIR) \
 		-cleanBuild $(PROJECT)/$(CONFIG)
-
-rtc:
-	python3 generate_rtc_time.py
 
 # --- Test (host) ---
 

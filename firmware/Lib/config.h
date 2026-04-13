@@ -17,8 +17,10 @@ typedef struct {
 
 typedef struct {
   uint32_t can_id;
+  uint8_t  is_extended;   // 1 = 29-bit extended ID, 0 = 11-bit standard
   uint8_t  start_byte;    // 0-7
-  uint8_t  bit_length;    // 8, 16, 32, 64
+  uint8_t  start_bit;     // 0-7, for sub-byte fields (bit_length < 8)
+  uint8_t  bit_length;    // 1-7 (sub-byte) or 8, 16, 32, 64
   uint8_t  is_big_endian; // byte order in CAN frame
   float    scale;
   float    offset;
@@ -39,6 +41,7 @@ typedef struct {
   uint16_t  num_fields;
   // Derived: unique CAN IDs from fields (for hardware filter setup)
   uint32_t  can_ids[CFG_MAX_CAN_IDS];
+  uint8_t   can_ids_extended[CFG_MAX_CAN_IDS];  // parallel: 1 = 29-bit ext, 0 = std
   uint16_t  num_can_ids;
   // Demo mode (auto-detected: set if any field has demo_func)
   uint8_t   demo;

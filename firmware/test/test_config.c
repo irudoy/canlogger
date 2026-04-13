@@ -361,9 +361,9 @@ void test_no_lut_by_default(void) {
 // --- Cansult config ---
 
 void test_parse_cansult_config(void) {
-  FILE* f = fopen("cansult_config.ini", "r");
-  TEST_ASSERT_NOT_NULL_MESSAGE(f, "cansult_config.ini not found — run from test/ dir");
-  char buf[4096];
+  FILE* f = fopen("config.ini", "r");
+  TEST_ASSERT_NOT_NULL_MESSAGE(f, "config.ini not found — run from test/ dir");
+  char buf[8192];
   size_t len = fread(buf, 1, sizeof(buf) - 1, f);
   fclose(f);
   buf[len] = '\0';
@@ -371,7 +371,7 @@ void test_parse_cansult_config(void) {
   int ret = cfg_parse(buf, len, &cfg);
   TEST_ASSERT_EQUAL(CFG_OK, ret);
   TEST_ASSERT_EQUAL(50, cfg.log_interval_ms);
-  TEST_ASSERT_EQUAL(13, cfg.num_fields);
+  TEST_ASSERT_EQUAL(30, cfg.num_fields);
 
   // [0] State: 0x665
   TEST_ASSERT_EQUAL_HEX32(0x665, cfg.fields[0].can_id);
@@ -389,17 +389,46 @@ void test_parse_cansult_config(void) {
   TEST_ASSERT_EQUAL_STRING("Coolant", cfg.fields[2].name);
   TEST_ASSERT_FLOAT_WITHIN(0.1f, -50.0f, cfg.fields[2].offset);
 
-  // [7] Speed: 0x667, byte 0
-  TEST_ASSERT_EQUAL_HEX32(0x667, cfg.fields[7].can_id);
-  TEST_ASSERT_EQUAL_STRING("Speed", cfg.fields[7].name);
+  // [9] Speed: 0x667, byte 0 (shifted by AF Alpha + AF Alpha SL)
+  TEST_ASSERT_EQUAL_HEX32(0x667, cfg.fields[9].can_id);
+  TEST_ASSERT_EQUAL_STRING("Speed", cfg.fields[9].name);
 
-  // [8] RPM: 0x667, byte 1, U16, big-endian, scale 12.5
-  TEST_ASSERT_EQUAL_STRING("RPM", cfg.fields[8].name);
-  TEST_ASSERT_EQUAL(1, cfg.fields[8].start_byte);
-  TEST_ASSERT_EQUAL(16, cfg.fields[8].bit_length);
-  TEST_ASSERT_EQUAL(2, cfg.fields[8].type); // U16
-  TEST_ASSERT_EQUAL(1, cfg.fields[8].is_big_endian);
-  TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.5f, cfg.fields[8].scale);
+  // [10] RPM: 0x667, byte 1, U16, big-endian, scale 12.5
+  TEST_ASSERT_EQUAL_STRING("RPM", cfg.fields[10].name);
+  TEST_ASSERT_EQUAL(1, cfg.fields[10].start_byte);
+  TEST_ASSERT_EQUAL(16, cfg.fields[10].bit_length);
+  TEST_ASSERT_EQUAL(2, cfg.fields[10].type); // U16
+  TEST_ASSERT_EQUAL(1, cfg.fields[10].is_big_endian);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.5f, cfg.fields[10].scale);
+
+  // [13] Throttle Closed: 0x668, byte 0, bit 0, 1-bit field
+  TEST_ASSERT_EQUAL_HEX32(0x668, cfg.fields[13].can_id);
+  TEST_ASSERT_EQUAL_STRING("Throttle Closed", cfg.fields[13].name);
+  TEST_ASSERT_EQUAL(0, cfg.fields[13].start_byte);
+  TEST_ASSERT_EQUAL(0, cfg.fields[13].start_bit);
+  TEST_ASSERT_EQUAL(1, cfg.fields[13].bit_length);
+
+  // [16] VTC Solenoid: 0x668, byte 1, bit 5, 1-bit field
+  TEST_ASSERT_EQUAL_STRING("VTC Solenoid", cfg.fields[16].name);
+  TEST_ASSERT_EQUAL(1, cfg.fields[16].start_byte);
+  TEST_ASSERT_EQUAL(5, cfg.fields[16].start_bit);
+  TEST_ASSERT_EQUAL(1, cfg.fields[16].bit_length);
+
+  // [26] Lambda: 0x180 (AEM 29-bit extended), byte 0, U16, scale 0.0001
+  TEST_ASSERT_EQUAL_HEX32(0x180, cfg.fields[26].can_id);
+  TEST_ASSERT_EQUAL_STRING("Lambda", cfg.fields[26].name);
+  TEST_ASSERT_EQUAL(0, cfg.fields[26].start_byte);
+  TEST_ASSERT_EQUAL(2, cfg.fields[26].type); // U16
+  TEST_ASSERT_EQUAL(1, cfg.fields[26].is_big_endian);
+  TEST_ASSERT_FLOAT_WITHIN(0.00001f, 0.0001f, cfg.fields[26].scale);
+
+  // [29] SysVolts: 0x180, byte 4, U08, scale 0.1
+  TEST_ASSERT_EQUAL_STRING("SysVolts", cfg.fields[29].name);
+  TEST_ASSERT_EQUAL(0, cfg.fields[29].type); // U08
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.1f, cfg.fields[29].scale);
+
+  // 7 unique CAN IDs: 0x665, 0x666, 0x667, 0x668, 0x66B, 0x640, 0x180
+  TEST_ASSERT_EQUAL(7, cfg.num_can_ids);
 }
 
 int main(void) {

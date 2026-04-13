@@ -3,6 +3,8 @@
 #include "sd_write_dma.h"
 #include "sd_diskio_counters.h"
 #include "can_drv.h"
+#include "vin_sense.h"
+#include "bkp_log.h"
 #include "stm32f4xx_hal.h"
 #include "cmsis_os2.h"
 #include "fatfs.h"
@@ -198,7 +200,68 @@ static void cmd_help(void) {
          "  get <f>   - download file (use usb_get.py)\r\n"
          "  put <f> N - upload N bytes to file\r\n"
          "  fault     - simulate fatal error, write FAULT file\r\n"
-         "  stop      - close SD safely (before flash)\r\n");
+         "  stop      - close SD safely (before flash)\r\n"
+         "  settime YYYY-MM-DD HH:MM:SS - set RTC (survives reset via VBAT)\r\n"
+         "  lastfault - show last fault from BKP regs (persistent)\r\n");
+}
+
+static void cmd_lastfault(void) {
+  uint8_t res, at;
+  uint32_t fault_sess;
+  uint32_t sess = bkp_log_session();
+  printf("session=%lu\r\n", (unsigned long)sess);
+  if (!bkp_log_get_last(&res, &at, &fault_sess)) {
+    printf("no fault recorded\r\n");
+    return;
+  }
+  printf("last_fault: FR_%u at %s in session %lu (%lu boots ago)\r\n",
+         res, bkp_at_name(at),
+         (unsigned long)fault_sess,
+         (unsigned long)(sess - fault_sess));
+}
+
+static void cmd_settime(const char* args) {
+  extern RTC_HandleTypeDef hrtc;
+  int year, mon, day, hour, min, sec;
+  if (sscanf(args, "%d-%d-%d %d:%d:%d",
+             &year, &mon, &day, &hour, &min, &sec) != 6 ||
+      year < 2000 || year > 2099 ||
+      mon < 1 || mon > 12 || day < 1 || day > 31 ||
+      hour > 23 || min > 59 || sec > 59) {
+    printf("usage: settime YYYY-MM-DD HH:MM:SS\r\n");
+    return;
+  }
+
+  #define BCD(v) (uint8_t)(((v) / 10) << 4 | ((v) % 10))
+  RTC_TimeTypeDef t = {
+    .Hours = BCD(hour), .Minutes = BCD(min), .Seconds = BCD(sec),
+    .DayLightSaving = RTC_DAYLIGHTSAVING_NONE,
+    .StoreOperation = RTC_STOREOPERATION_RESET,
+  };
+  RTC_DateTypeDef d = {
+    .WeekDay = RTC_WEEKDAY_MONDAY,  // not used by our code
+    .Month = BCD(mon), .Date = BCD(day), .Year = BCD(year % 100),
+  };
+  #undef BCD
+
+  // Snapshot current time/date so we can roll back if SetDate fails after
+  // SetTime succeeded (avoid leaving RTC in a half-updated state).
+  RTC_TimeTypeDef t_old; RTC_DateTypeDef d_old;
+  HAL_RTC_GetTime(&hrtc, &t_old, RTC_FORMAT_BCD);
+  HAL_RTC_GetDate(&hrtc, &d_old, RTC_FORMAT_BCD);
+
+  if (HAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BCD) != HAL_OK) {
+    printf("RTC set failed\r\n");
+    return;
+  }
+  if (HAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BCD) != HAL_OK) {
+    HAL_RTC_SetTime(&hrtc, &t_old, RTC_FORMAT_BCD);  // rollback
+    HAL_RTC_SetDate(&hrtc, &d_old, RTC_FORMAT_BCD);
+    printf("RTC set failed\r\n");
+    return;
+  }
+  printf("RTC set to %04d-%02d-%02d %02d:%02d:%02d\r\n",
+         year, mon, day, hour, min, sec);
 }
 
 static void cmd_status(const ring_Buffer* rb) {
@@ -279,6 +342,9 @@ static void cmd_status(const ring_Buffer* rb) {
   } else {
     printf("sd: error reading\r\n");
   }
+
+  // VIN_SENSE
+  printf("vin: %lumV\r\n", vin_sense_mv);
 
   // CAN bus diagnostics
   static const char* bus_states[] = {"active", "passive", "bus-off"};
@@ -466,6 +532,10 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
     extern volatile uint8_t lw_shutdown;
     printf("Stopping SD...\r\n");
     lw_shutdown = 1;
+  } else if (strcmp(line, "lastfault") == 0) {
+    cmd_lastfault();
+  } else if (strncmp(line, "settime ", 8) == 0) {
+    cmd_settime(line + 8);
   } else if (strncmp(line, "get ", 4) == 0) {
     cmd_get(line + 4);
   } else if (strncmp(line, "put ", 4) == 0) {

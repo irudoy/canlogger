@@ -18,11 +18,18 @@ int can_map_init(can_FieldValues* fv, const cfg_Config* cfg) {
 // Writes result as big-endian into dest.
 // Returns 0 on success, -1 if out of bounds
 static int extract_value(const uint8_t* can_data, uint8_t dlc,
-                          uint8_t start_byte, uint8_t bit_length,
+                          uint8_t start_byte, uint8_t start_bit,
+                          uint8_t bit_length,
                           uint8_t is_big_endian, uint8_t* dest) {
-  size_t byte_count = bit_length / 8;
-  if (byte_count == 0) byte_count = 1;
+  // Sub-byte extraction: single source byte, shift+mask into dest[0].
+  if (bit_length < 8) {
+    if (start_byte >= dlc) return -1;
+    uint8_t mask = (uint8_t)((1u << bit_length) - 1);
+    dest[0] = (can_data[start_byte] >> start_bit) & mask;
+    return 0;
+  }
 
+  size_t byte_count = bit_length / 8;
   if (start_byte + byte_count > dlc) return -1; // beyond actual data
 
   if (is_big_endian) {
@@ -84,7 +91,8 @@ int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame*
 
     if (cfg->fields[i].can_id == frame->id) {
       if (extract_value(frame->data, frame->dlc, cfg->fields[i].start_byte,
-                        cfg->fields[i].bit_length, cfg->fields[i].is_big_endian,
+                        cfg->fields[i].start_bit, cfg->fields[i].bit_length,
+                        cfg->fields[i].is_big_endian,
                         fv->values + offset) == 0) {
         // Apply LUT if present
         if (cfg->fields[i].lut_count >= 2) {

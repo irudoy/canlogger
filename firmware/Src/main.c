@@ -25,7 +25,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
-#include "generated_rtc_time.h"
 #include "log_writer.h"
 #include "can_drv.h"
 #include "ring_buf.h"
@@ -33,6 +32,8 @@
 #include "debug_out.h"
 #include "demo_gen.h"
 #include "demo_can.h"
+#include "vin_sense.h"
+#include "bkp_log.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,7 +43,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define VIN_SENSE_CHECK_MS    100   /* poll interval */
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -51,6 +52,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 CAN_HandleTypeDef hcan1;
 
 RTC_HandleTypeDef hrtc;
@@ -68,6 +71,8 @@ const osThreadAttr_t defaultTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 volatile uint8_t lw_shutdown = 0;
+volatile uint8_t sd_stopped = 0;  // set by task_sd after lw_stop completes
+volatile uint8_t vin_triggered_shutdown = 0;  // 1 = VIN outage (auto-resume), 0 = CDC `stop`
 static ring_Buffer can_rx_buf;
 static cfg_Config config __attribute__((section(".ccmram")));
 static can_FieldValues field_values;
@@ -101,6 +106,7 @@ static void MX_DMA_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_SDIO_SD_Init(void);
 static void MX_RTC_Init(void);
+static void MX_ADC1_Init(void);
 void StartDefaultTask(void *argument);
 
 static void MX_NVIC_Init(void);
@@ -151,10 +157,12 @@ int main(void)
   MX_SDIO_SD_Init();
   MX_FATFS_Init();
   MX_RTC_Init();
+  MX_ADC1_Init();
 
   /* Initialize interrupts */
   MX_NVIC_Init();
   /* USER CODE BEGIN 2 */
+  bkp_log_init();  // increment session counter in BKP_DR1
   ring_buf_init(&can_rx_buf);
   /* SD/FatFS init moved to StartDefaultTask — requires scheduler running
    * (RTOS sd_diskio template checks osKernelGetState before BSP_SD_Init). */
@@ -266,6 +274,58 @@ static void MX_NVIC_Init(void)
 }
 
 /**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
   * @brief CAN1 Initialization Function
   * @param None
   * @retval None
@@ -335,9 +395,12 @@ static void MX_RTC_Init(void)
   }
 
   /* USER CODE BEGIN Check_RTC_BKUP */
-  // if (HAL_RTCEx_BKUPRead(&hrtc, RTC_BKP_DR1) == 0x666) {
-  //  return;
-  // }
+  // RTC_ISR_INITS is hw-set on first successful SetTime and cleared only on
+  // backup domain reset (VBAT loss). Survives flash/reset — no bootstrap on
+  // warm path. Time is set manually via CDC `settime` or GPS when available.
+  if (__HAL_RTC_IS_CALENDAR_INITIALIZED(&hrtc)) {
+    return;
+  }
   /* USER CODE END Check_RTC_BKUP */
 
   /** Initialize RTC and set the Time and Date
@@ -361,23 +424,23 @@ static void MX_RTC_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN RTC_Init 2 */
-  sTime.Hours = INIT_RTC_HOURS;
-  sTime.Minutes = INIT_RTC_MINUTES;
-  sTime.Seconds = INIT_RTC_SECONDS;
+  // Reached only on fresh chip or VBAT loss (INITS flag not set).
+  // Bootstrap with neutral date; user sets real time via CDC `settime`.
+  sTime.Hours = 0x00;
+  sTime.Minutes = 0x00;
+  sTime.Seconds = 0x00;
   sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
   sTime.StoreOperation = RTC_STOREOPERATION_RESET;
   if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK) {
     Error_Handler();
   }
-  sDate.WeekDay = INIT_RTC_WEEKDAY;
-  sDate.Month = INIT_RTC_MONTH;
-  sDate.Date = INIT_RTC_DATE;
-  sDate.Year = INIT_RTC_YEAR;
+  sDate.WeekDay = RTC_WEEKDAY_THURSDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x01;
+  sDate.Year = 0x26;  // 2026
   if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK) {
     Error_Handler();
   }
-
-  // HAL_RTCEx_BKUPWrite(&hrtc, RTC_BKP_DR1, 0x666);
   /* USER CODE END RTC_Init 2 */
 
 }
@@ -506,6 +569,9 @@ void SdTaskEntry(void *argument)
 
   // Graceful shutdown: flush and close
   if (init_ok) lw_stop();
+
+  // Signal task_producer that SD is fully flushed — safe to reset MCU now.
+  sd_stopped = 1;
   osThreadExit();
 }
 /* USER CODE END 4 */
@@ -552,8 +618,27 @@ void StartDefaultTask(void *argument)
   {
     if (lw_shutdown) {
       can_drv_stop();
-      osDelay(50);  // let task_sd see the flag and flush
-      osThreadExit();
+      // Wait for task_sd to flush SD before MCU reset — resetting mid-write
+      // corrupts the file. Cap wait at 2s: if lw_stop wedges (card removed,
+      // HAL stuck), reset anyway so we don't drain the supercap forever.
+      uint32_t deadline = HAL_GetTick() + 2000;
+      while (!sd_stopped && HAL_GetTick() < deadline) osDelay(10);
+
+      // CDC `stop` (vin_triggered_shutdown=0) just halts — user wants to
+      // flash or remove the card. VIN-triggered shutdown waits for power
+      // to return, then resets so logging auto-resumes.
+      if (!vin_triggered_shutdown) osThreadExit();
+
+      int high_count = 0;
+      for (;;) {
+        osDelay(VIN_SENSE_CHECK_MS);
+        vin_sense_poll();
+        if (vin_sense_mv >= VIN_SENSE_THRESHOLD_MV) {
+          if (++high_count >= 3) NVIC_SystemReset();
+        } else {
+          high_count = 0;
+        }
+      }
     }
 
     // Pack demo data into CAN frames (if demo + ring buf mode)
@@ -584,6 +669,17 @@ void StartDefaultTask(void *argument)
     debug_out_tick(can_frames_processed, config.num_fields, init_ok);
     debug_cmd_poll(&config, init_ok, &can_rx_buf);
     lw_update_leds();
+
+    // VIN_SENSE: check every VIN_SENSE_CHECK_MS
+    {
+      static uint32_t next_vin_check = 0;
+      uint32_t now = HAL_GetTick();
+      if (now >= next_vin_check) {
+        vin_sense_poll();
+        next_vin_check = now + VIN_SENSE_CHECK_MS;
+      }
+    }
+
     osDelay(1);
   }
   /* USER CODE END 5 */

@@ -190,6 +190,8 @@ static int process_line(char* line, ParseState* st) {
     cfg_Field* f = &out->fields[fi];
     if (strcmp(raw_key, "can_id") == 0) {
       f->can_id = parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "is_extended") == 0) {
+      f->is_extended = (uint8_t)parse_uint32(val_buf);
     } else if (strcmp(raw_key, "name") == 0) {
       copy_str(f->name, val_buf, CFG_NAME_SIZE);
     } else if (strcmp(raw_key, "units") == 0) {
@@ -198,6 +200,8 @@ static int process_line(char* line, ParseState* st) {
       f->start_byte = (uint8_t)parse_uint32(val_buf);
     } else if (strcmp(raw_key, "bit_length") == 0) {
       f->bit_length = (uint8_t)parse_uint32(val_buf);
+    } else if (strcmp(raw_key, "start_bit") == 0) {
+      f->start_bit = (uint8_t)parse_uint32(val_buf);
     } else if (strcmp(raw_key, "type") == 0) {
       uint8_t t = parse_type(val_buf);
       if (t == 0xFF) return CFG_ERR_VALUE;
@@ -238,16 +242,23 @@ static int cfg_finalize(cfg_Config* out, int logger_found) {
 
   if (out->can_bitrate == 0) out->can_bitrate = 500000;
 
-  // Collect unique CAN IDs
+  // Collect unique CAN IDs + propagate is_extended flag.
+  // Reject configs where the same can_id appears with conflicting flags.
   out->num_can_ids = 0;
   for (int i = 0; i < out->num_fields; i++) {
     if (out->fields[i].can_id == 0) continue;
     int found = 0;
     for (int j = 0; j < out->num_can_ids; j++) {
-      if (out->can_ids[j] == out->fields[i].can_id) { found = 1; break; }
+      if (out->can_ids[j] == out->fields[i].can_id) {
+        if (out->can_ids_extended[j] != out->fields[i].is_extended) return CFG_ERR_VALUE;
+        found = 1;
+        break;
+      }
     }
     if (!found && out->num_can_ids < CFG_MAX_CAN_IDS) {
-      out->can_ids[out->num_can_ids++] = out->fields[i].can_id;
+      out->can_ids[out->num_can_ids] = out->fields[i].can_id;
+      out->can_ids_extended[out->num_can_ids] = out->fields[i].is_extended;
+      out->num_can_ids++;
     }
   }
 
@@ -261,8 +272,19 @@ static int cfg_finalize(cfg_Config* out, int logger_found) {
       }
       continue;
     }
-    if (f->bit_length == 0 || f->bit_length % 8 != 0) return CFG_ERR_VALUE;
-    if (f->start_byte + f->bit_length / 8 > 8) return CFG_ERR_VALUE;
+    if (f->bit_length == 0) return CFG_ERR_VALUE;
+    if (f->bit_length < 8) {
+      // sub-byte field: start_bit + bit_length must fit in one byte,
+      // and shadow-buffer slot must be exactly 1 byte (U08/S08).
+      if (f->start_byte >= 8) return CFG_ERR_VALUE;
+      if (f->start_bit + f->bit_length > 8) return CFG_ERR_VALUE;
+      if (mlg_field_data_size((mlg_FieldType)f->type) != 1) return CFG_ERR_VALUE;
+    } else {
+      if (f->bit_length % 8 != 0) return CFG_ERR_VALUE;
+      if (f->start_byte + f->bit_length / 8 > 8) return CFG_ERR_VALUE;
+      // start_bit only meaningful for sub-byte fields — reject stray values.
+      if (f->start_bit != 0) return CFG_ERR_VALUE;
+    }
   }
 
   // Auto-detect demo mode

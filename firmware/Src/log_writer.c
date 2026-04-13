@@ -6,6 +6,7 @@
 #include "cmsis_os2.h"
 #include "mlvlg.h"
 #include "sd_write_dma.h"
+#include "bkp_log.h"
 
 #define LED1 1
 #define LED2 2
@@ -24,7 +25,7 @@ typedef struct {
 } DateTime;
 
 static FIL log_file_obj;
-static char log_file_name[13];
+static char log_file_name[32];
 static uint32_t last_tick_led1 = 0;
 static uint32_t last_tick_led2 = 0;
 static int error_state = 0;
@@ -116,8 +117,14 @@ static int sd_readline(char* buf, int max_len, void* ctx) {
 }
 
 int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out) {
-  // Mount SD
-  FRESULT res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
+  // Mount SD (retry — card may need time after cold start)
+  FRESULT res = FR_NOT_READY;
+  for (int attempt = 0; attempt < 5; attempt++) {
+    res = f_mount(&SDFatFS, (TCHAR const *)SDPath, 1);
+    if (res == FR_OK) break;
+    f_mount(0, "", 0);  // unmount before retry
+    osDelay(200);
+  }
   if (res != FR_OK) {
     set_error_state(res, "mount");
     return -1;
@@ -310,12 +317,22 @@ static FRESULT flush_io_buf(void) {
 static FRESULT create_new_log_file(void) {
   DateTime dt;
   get_current_datetime(&dt);
-  snprintf(log_file_name, sizeof(log_file_name), "%02d%02d%02d%02d.MLG",
-           dt.day % 100, dt.hour % 100, dt.minute % 100,
-           (int)(file_counter++ % 100));
 
-  FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_ALWAYS | FA_WRITE);
-  if (res != FR_OK) return handle_error(res, "create");
+  // Try unique filename: ..._00.mlg, ..._01.mlg, ... (suffix increments on collision)
+  for (int suffix = 0; suffix < 100; suffix++) {
+    snprintf(log_file_name, sizeof(log_file_name),
+             "20%02d-%02d-%02d_%02d-%02d-%02d_%02d.mlg",
+             dt.year % 100, dt.month, dt.day,
+             dt.hour, dt.minute, dt.second, suffix);
+
+    FRESULT res = f_open(&log_file_obj, log_file_name, FA_CREATE_NEW | FA_WRITE);
+    if (res == FR_OK) goto file_created;
+    if (res != FR_EXIST) return handle_error(res, "create");
+  }
+  return handle_error(FR_EXIST, "create");
+
+file_created:
+  file_counter++;
 
   // Pre-allocate contiguous space (opt=1) — same as rusEFI mmc_card.cpp.
   // Avoids FAT-table reads/writes interleaved with data stream, which
@@ -323,7 +340,7 @@ static FRESULT create_new_log_file(void) {
   f_expand(&log_file_obj, MAX_FILE_SIZE, 1);
   f_lseek(&log_file_obj, 0);
 
-  res = write_mlg_file_header();
+  FRESULT res = write_mlg_file_header();
   if (res != FR_OK) {
     f_close(&log_file_obj);
     return handle_error(res, "header");
@@ -456,7 +473,8 @@ static void set_error_state(FRESULT res, const char* at) {
   error_state = 1;
   last_error = res;
   last_error_at = at;
-  write_fault_file(res, at);
+  bkp_log_fault((uint8_t)res, bkp_at_from_name(at));  // persistent — survives reset/power loss
+  write_fault_file(res, at);                          // may fail if SD not mountable
 }
 
 static FRESULT handle_error(FRESULT res, const char* at) {

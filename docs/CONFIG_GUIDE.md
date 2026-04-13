@@ -47,14 +47,16 @@ Each `[field]` section defines one logged parameter. The order of sections deter
 | Key | Required | Default | Description |
 |-----|----------|---------|-------------|
 | `can_id` | yes | -- | CAN ID to listen for (hex `0x...` or decimal) |
+| `is_extended` | no | 0 | 1 = 29-bit extended ID (CAN 2.0B), 0 = 11-bit standard. Required for AEMnet and other extended-frame sources |
 | `name` | yes | -- | Parameter name shown in MegaLogViewer (max 33 chars) |
 | `units` | yes | -- | Units label (max 9 chars) |
 | `start_byte` | yes | -- | Byte position in CAN data payload (0--7) |
-| `bit_length` | yes | -- | Data width in bits: 8, 16, 32, or 64 |
+| `start_bit` | no | 0 | Bit-within-byte position (0--7), only for sub-byte fields (`bit_length < 8`) |
+| `bit_length` | yes | -- | Data width in bits: 1--7 (sub-byte), 8, 16, 32, or 64 |
 | `type` | yes | -- | Data type: `U08`, `S08`, `U16`, `S16`, `U32`, `S32`, `S64`, `F32` |
 | `scale` | yes | -- | Display multiplier: `display = raw * scale + offset` |
 | `offset` | yes | -- | Display offset |
-| `is_big_endian` | no | 0 | Byte order in CAN frame: 0 = little-endian, 1 = big-endian |
+| `is_big_endian` | no | 0 | Byte order in CAN frame: 0 = little-endian, 1 = big-endian. Ignored for sub-byte fields |
 | `digits` | no | 0 | Decimal places in MegaLogViewer |
 | `display_style` | no | 0 | 0=Float, 1=Hex, 2=Bits, 4=On/Off, 5=Yes/No, 6=High/Low |
 | `category` | no | *(empty)* | Group name in MegaLogViewer (max 33 chars) |
@@ -62,8 +64,11 @@ Each `[field]` section defines one logged parameter. The order of sections deter
 
 ### Constraints
 
-- Maximum 32 fields total
+- Maximum 256 fields total, up to 28 unique CAN IDs (hardware filter limit)
 - `start_byte + bit_length/8` must not exceed 8 (CAN frame is 8 bytes)
+- Sub-byte fields (`bit_length` 1--7) must use `type = U08` or `S08`, and `start_bit + bit_length <= 8`
+- `start_bit` is only valid for sub-byte fields (`bit_length < 8`); non-zero `start_bit` with byte-aligned `bit_length` is rejected
+- The same `can_id` must not appear with conflicting `is_extended` flags
 - Multiple fields can reference the same `can_id`
 - Field names must be unique
 
@@ -144,6 +149,62 @@ CAN data bytes can be in little-endian (LSB first) or big-endian (MSB first) ord
 - `is_big_endian = 1`: bytes `[high, low]` -- common in OEM ECUs, Nissan Consult
 
 For 8-bit fields (`bit_length = 8`), endianness does not matter.
+
+## Extended (29-bit) CAN IDs
+
+Standard CAN frames use 11-bit IDs (0x000--0x7FF). CAN 2.0B extended frames use 29-bit IDs and are distinguished by the IDE bit on the wire. Sources like AEMnet (AEM gauges) and J1939 use extended IDs.
+
+Set `is_extended = 1` to configure the hardware filter for extended frames. The same numeric `can_id` value can exist in the standard and extended ID spaces independently, so always set this flag explicitly when the source documentation specifies extended addressing.
+
+```ini
+# AEM X-Series UEGO 30-0300, AEMnet extended ID 0x180
+[field]
+can_id = 0x180
+is_extended = 1
+name = Lambda
+units = λ
+start_byte = 0
+bit_length = 16
+type = U16
+is_big_endian = 1
+scale = 0.0001
+offset = 0.0
+digits = 4
+category = AEM UEGO
+```
+
+## Sub-byte (bit-level) Fields
+
+For digital flags packed inside a single byte (ECU status bits, solenoid states, DTCs), declare each bit as its own field with `bit_length = 1` and an explicit `start_bit`.
+
+```ini
+# Nissan Consult BIT_1 register — byte 0 of 0x668
+[field]
+can_id = 0x668
+name = Throttle Closed
+units = bool
+start_byte = 0
+start_bit = 0       # bit 0
+bit_length = 1
+type = U08
+scale = 1.0
+offset = 0.0
+category = Cansult
+
+[field]
+can_id = 0x668
+name = Neutral Switch
+units = bool
+start_byte = 0
+start_bit = 2       # bit 2
+bit_length = 1
+type = U08
+scale = 1.0
+offset = 0.0
+category = Cansult
+```
+
+Bit ordering is LSB = bit 0. Sub-byte fields produce raw 0/1 values in the MLG; use `display_style = 4` (On/Off) or `5` (Yes/No) for nicer rendering in MegaLogViewer.
 
 ## Choosing the Right Data Type
 

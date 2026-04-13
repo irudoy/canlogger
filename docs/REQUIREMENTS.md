@@ -62,9 +62,10 @@
 **Цель:** Надёжный логгер для повседневного использования.
 
 Задачи:
-- [ ] Graceful shutdown при пропадании питания (обнаружение + запись буфера + f_close)
-- [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit
-- [ ] Поддержка extended CAN ID (29-bit) в конфиге и can_map
+- [~] Graceful shutdown при пропадании питания (firmware готов — VIN_SENSE ADC + armed debounce + lw_stop + auto-resume через NVIC_SystemReset; ждёт hat с суперкапом для проверки)
+- [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit (прототип на breadboard, см. [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
+- [x] Поддержка extended CAN ID (29-bit) в конфиге и can_map — явный ключ `is_extended = 1` в `[field]`, hardware filter корректно настраивается на IDE=1 (используется для AEM 30-0300 `0x180`)
+- [x] Sub-byte (1-7 бит) поля в конфиге — ключи `start_bit` + `bit_length` для индивидуальных битовых флагов (статус ECU, реле, соленоиды)
 - [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
 - [ ] Поле "Date" в MLG (U32 unix timestamp, display_style=MLG_DATE) — реальное время на таймлайне MegaLogViewer
@@ -74,8 +75,16 @@
 - [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
 - [ ] Поддержка двух CAN-шин (CAN1 + CAN2) — два независимных канала, удвоение пропускной способности
 - [ ] GPS модуль — геопозиция + точное реальное время
+- [ ] Рассмотреть миграцию debug-интерфейса с USB CDC на CAN (status/config/get через CAN-фреймы, убрать зависимость от USB)
 - [ ] Полнота реализации MLG — изучить спеку, проверить все ли возможности используются
 - [x] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах, VBAT батарейка на плате
+- [x] RTC persistence: `RTC_FLAG_INITS` check — RTC не перезаписывается на boot если уже инициализирован, переживает reset/flash пока VBAT жив. Первый boot (fresh chip / VBAT loss) → bootstrap на `2026-01-01 00:00:00`, дальше через CDC `settime YYYY-MM-DD HH:MM:SS` или GPS
+- [x] Персистентный fault log в RTC backup registers (DR1-DR3): session counter + last fault code/location, переживают reset и power loss. CDC команда `lastfault`. Нужно когда SD не монтируется — fault в BKP виден при следующем boot
+- [x] BOR Level 3 (2.7V) в Option Bytes — MCU в reset при медленном росте питания, нет попыток init SD на нестабильном Vdd
+- [x] SD mount retry — до 5 попыток с 200 мс паузой в `lw_init`, карта успевает инициализироваться после cold start
+- [x] FatFS LFN (Long File Names) + новая схема имён: `2026-04-12_12-32-29_00.mlg` — хронологическая сортировка, при коллизии инкремент суффикса `_NN`, `FA_CREATE_NEW` (не затирает существующие)
+- [x] Конфиг SD переименован `cansult_config.ini` → `config.ini`
+- [x] AEM X-Series UEGO 30-0300 (AEMnet CAN): Lambda, AFR (computed scale 0.001465), O2%, SysVolts на extended ID `0x180`
 - [x] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
 - [x] DMA для SDIO (reorder + PBURST_INC4, TX_UNDERRUN исправлен)
 - [x] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):

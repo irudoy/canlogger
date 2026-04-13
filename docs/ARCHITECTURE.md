@@ -50,10 +50,11 @@
 
 typedef struct {
   uint32_t can_id;        // CAN ID для прослушивания
+  uint8_t  is_extended;   // 1 = 29-bit extended ID (AEMnet/J1939), 0 = 11-bit standard
   uint8_t  start_byte;    // начальный байт в CAN data (0-7)
-  uint8_t  start_bit;     // начальный бит внутри байта (0-7), 0 = весь байт
-  uint8_t  bit_length;    // длина в битах (8, 16, 32 и т.д.)
-  uint8_t  is_big_endian; // порядок байт в CAN-фрейме
+  uint8_t  start_bit;     // начальный бит внутри байта (0-7), только для bit_length<8
+  uint8_t  bit_length;    // длина в битах: 1-7 (sub-byte), 8, 16, 32, 64
+  uint8_t  is_big_endian; // порядок байт в CAN-фрейме (игнорируется для sub-byte)
   float    scale;
   float    offset;
   uint8_t  type;          // mlg_FieldType (U08, U16, F32...)
@@ -70,6 +71,7 @@ typedef struct {
   cfg_Field fields[CFG_MAX_FIELDS];
   uint16_t  num_fields;
   uint32_t  can_ids[CFG_MAX_CAN_IDS];
+  uint8_t   can_ids_extended[CFG_MAX_CAN_IDS];  // параллельный флаг для filter setup
   uint16_t  num_can_ids;
   uint8_t   demo;             // авто: 1 если есть поля с demo_func
   demo_Gen  demo_gen;
@@ -277,14 +279,16 @@ category = Engine
 | Ключ | Обязательный | Default | Описание |
 |------|-------------|---------|----------|
 | `can_id` | да* | — | CAN ID (hex 0x... или decimal). *Не нужен если задан `demo_func` |
+| `is_extended` | нет | 0 | 1 = 29-bit extended ID (AEMnet, J1939), 0 = 11-bit standard |
 | `name` | да | — | Имя параметра (до 33 символов) |
 | `units` | да | — | Единицы измерения (до 9 символов) |
 | `start_byte` | да | — | Начальный байт в CAN data (0-7) |
-| `bit_length` | да | — | Длина данных в битах (8, 16, 32, 64) |
+| `start_bit` | нет | 0 | Начальный бит внутри байта (0-7), только для `bit_length < 8` |
+| `bit_length` | да | — | Длина данных в битах: 1-7 (sub-byte), 8, 16, 32, 64 |
 | `type` | да | — | Тип: U08, S08, U16, S16, U32, S32, S64, F32 |
 | `scale` | да | — | Множитель для отображения |
 | `offset` | да | — | Смещение для отображения |
-| `is_big_endian` | нет | 0 | Порядок байт в CAN фрейме (0=LE, 1=BE) |
+| `is_big_endian` | нет | 0 | Порядок байт в CAN фрейме (0=LE, 1=BE). Игнорируется для sub-byte |
 | `digits` | нет | 0 | Кол-во знаков после запятой |
 | `display_style` | нет | 0 | Стиль отображения (0=Float) |
 | `category` | нет | "" | Категория для группировки в MLV |
@@ -296,9 +300,10 @@ category = Engine
 | `demo_smoothing` | нет | 0.95 | Гладкость для noise (0.0-1.0, больше = плавнее) |
 
 - Порядок секций `[field]` определяет порядок полей в MLG
-- Несколько полей могут ссылаться на один `can_id`
-- Уникальные CAN ID автоматически собираются для настройки hardware фильтров
-- Валидация: `bit_length` кратен 8, `start_byte + bit_length/8 <= 8`
+- Несколько полей могут ссылаться на один `can_id`, но флаг `is_extended` должен совпадать — иначе `CFG_ERR_VALUE`
+- Уникальные CAN ID автоматически собираются для настройки hardware фильтров; фильтр выбирает std/ext по `is_extended`
+- Валидация byte-aligned: `bit_length` кратен 8, `start_byte + bit_length/8 <= 8`, `start_bit == 0`
+- Валидация sub-byte: `bit_length` 1-7, `start_bit + bit_length <= 8`, тип = `U08` или `S08`
 - Demo-поля (с `demo_func`) не требуют `can_id`/`start_byte`/`bit_length` — тип и размер определяются из `type`
 - Demo-режим включается автоматически при наличии хотя бы одного поля с `demo_func`
 - CAN и demo поля могут сосуществовать в одном конфиге (гибридный режим)
