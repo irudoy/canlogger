@@ -201,6 +201,7 @@ static void cmd_help(void) {
          "  put <f> N - upload N bytes to file\r\n"
          "  fault     - simulate fatal error, write FAULT file\r\n"
          "  stop      - close SD safely (before flash)\r\n"
+         "  pause     - flush & close log, keep SD mounted (reboot to resume)\r\n"
          "  settime YYYY-MM-DD HH:MM:SS - set RTC (survives reset via VBAT)\r\n"
          "  lastfault - show last fault from BKP regs (persistent)\r\n");
 }
@@ -532,6 +533,9 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
     extern volatile uint8_t lw_shutdown;
     printf("Stopping SD...\r\n");
     lw_shutdown = 1;
+  } else if (strcmp(line, "pause") == 0) {
+    if (init_ok) lw_pause();
+    printf("paused\r\n");
   } else if (strcmp(line, "lastfault") == 0) {
     cmd_lastfault();
   } else if (strncmp(line, "settime ", 8) == 0) {

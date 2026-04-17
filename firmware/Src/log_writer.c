@@ -63,8 +63,13 @@ static FRESULT flush_io_buf(void);
 static FRESULT recover_file(void);
 static FRESULT handle_error(FRESULT res, const char* at);
 
+// Synthetic "Date" field prepended to every record: absolute wall-clock
+// time from RTC. Gives MegaLogViewer a real timeline instead of the 10us
+// counter that wraps every 655 ms.
+#define DATE_FIELD_SIZE 4
+
 static FRESULT write_mlg_file_header(void) {
-  uint16_t nf = cached_cfg->num_fields;
+  uint16_t nf = (uint16_t)(cached_cfg->num_fields + 1);
   uint32_t data_begin = MLG_HEADER_SIZE + nf * MLG_FIELD_SIZE;
 
   DateTime dt;
@@ -76,7 +81,7 @@ static FRESULT write_mlg_file_header(void) {
     .timestamp = datetime_to_unix(&dt),
     .info_data_start = 0,
     .data_begin_index = data_begin,
-    .record_length = (uint16_t)record_length,
+    .record_length = (uint16_t)(record_length + DATE_FIELD_SIZE),
     .num_fields = nf
   };
 
@@ -87,7 +92,25 @@ static FRESULT write_mlg_file_header(void) {
   FRESULT res = f_write(&log_file_obj, write_buf, ret, &bw);
   if (res != FR_OK) return res;
 
-  for (int i = 0; i < nf; i++) {
+  // Synthetic Date field (first in record).
+  {
+    mlg_Field mf;
+    memset(&mf, 0, sizeof(mf));
+    mf.type = MLG_U32;
+    mf.display_style = MLG_DATE;
+    mf.scale = 1.0f;
+    mf.transform = 0.0f;
+    mf.digits = 0;
+    strncpy(mf.name, "Date", MLG_FIELD_NAME_SIZE - 1);
+    strncpy(mf.units, "sec", MLG_FIELD_UNITS_SIZE - 1);
+    strncpy(mf.category, "Time", MLG_FIELD_CATEGORY_SIZE - 1);
+    ret = mlg_write_field(write_buf, sizeof(write_buf), &mf);
+    if (ret < 0) return FR_INT_ERR;
+    res = f_write(&log_file_obj, write_buf, ret, &bw);
+    if (res != FR_OK) return res;
+  }
+
+  for (int i = 0; i < cached_cfg->num_fields; i++) {
     const cfg_Field* cf = &cached_cfg->fields[i];
     mlg_Field mf;
     memset(&mf, 0, sizeof(mf));
@@ -172,9 +195,21 @@ FRESULT lw_write_snapshot(const uint8_t* values, size_t rec_length) {
 
   uint16_t timestamp_10us = (uint16_t)(((uint64_t)HAL_GetTick() * 100) & 0xFFFF);
 
+  // Build a combined record: [Date U32 BE][config fields...].
+  static uint8_t rec_buf[CAN_MAP_MAX_RECORD_SIZE + DATE_FIELD_SIZE]
+                 __attribute__((aligned(4)));
+  DateTime dt;
+  get_current_datetime(&dt);
+  uint32_t unix_ts = datetime_to_unix(&dt);
+  rec_buf[0] = (uint8_t)(unix_ts >> 24);
+  rec_buf[1] = (uint8_t)(unix_ts >> 16);
+  rec_buf[2] = (uint8_t)(unix_ts >> 8);
+  rec_buf[3] = (uint8_t)(unix_ts);
+  memcpy(rec_buf + DATE_FIELD_SIZE, values, rec_length);
+
   int ret = mlg_write_data_block(write_buf, sizeof(write_buf),
                                   block_counter++, timestamp_10us,
-                                  values, rec_length);
+                                  rec_buf, rec_length + DATE_FIELD_SIZE);
   if (ret < 0) return FR_INT_ERR;
 
   // Accumulate in I/O buffer, flush when full

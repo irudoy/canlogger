@@ -245,6 +245,59 @@ DisplayValue = (storedValue + transform) * scale
 
 This is set up automatically by the logger from your config -- you don't need to configure anything in MegaLogViewer.
 
+### Built-in `Date` field and HH:MM:SS via calculated fields
+
+Each record includes a synthetic `Date` field (U32 unix timestamp, `MLG_DATE`
+display style). MegaLogViewer renders it as a calendar date only (e.g.
+`Apr 14, 2026`) — the MLG spec has no native HH:MM:SS style.
+
+To display the wall-clock time, add **calculated fields** in your viewer.
+Calculated fields are numeric only — string formatting like `"HH:MM:SS"` is
+not supported by either viewer.
+
+#### MegaLogViewer (Optional Fields → Custom Fields)
+
+MLV supports the `%` (modulo) operator.
+
+Single packed HHMMSS integer — one row in the value panel:
+
+```
+TimeHHMMSS = floor(([Date] % 86400) / 3600) * 10000
+           + floor(([Date] % 3600)  / 60)   * 100
+           + ([Date] % 60)
+```
+
+Displays as `171642`, read as `17:16:42`.
+
+Three separate fields — three rows, each a plain number (`17`, `16`, `42`):
+
+```
+Hour   = floor(([Date] % 86400) / 3600)
+Minute = floor(([Date] % 3600)  / 60)
+Second = [Date] % 60
+```
+
+#### UltraLog (Computed Channels)
+
+UltraLog's expression engine (`meval`) supports `floor`/`ceil`/`round`/`trunc`
+but **does not have a `%` operator** — use `x - floor(x/y)*y` for modulo.
+
+Single packed HHMMSS integer:
+
+```
+TimeHHMMSS = floor((Date - floor(Date/86400)*86400) / 3600) * 10000
+           + floor((Date - floor(Date/3600)*3600)   / 60)   * 100
+           + (Date - floor(Date/60)*60)
+```
+
+Three separate fields:
+
+```
+Hour   = floor((Date - floor(Date/86400)*86400) / 3600)
+Minute = floor((Date - floor(Date/3600)*3600)   / 60)
+Second = Date - floor(Date/60)*60
+```
+
 ## Complete Example: Nissan Consult via cansult
 
 This config logs 11 parameters from a Nissan ECU using the [cansult](../cansult/) bridge (Consult protocol -> CAN bus).
