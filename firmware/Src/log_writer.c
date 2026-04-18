@@ -249,6 +249,21 @@ FRESULT lw_write_snapshot(const uint8_t* values, size_t rec_length) {
   return FR_OK;
 }
 
+FRESULT lw_write_marker(const char* msg) {
+  if (error_state || paused) return FR_OK;
+
+  FRESULT res = flush_io_buf();
+  if (res != FR_OK) return res;
+
+  uint16_t ts = (uint16_t)(((uint64_t)HAL_GetTick() * 100) & 0xFFFF);
+  int ret = mlg_write_marker(write_buf, sizeof(write_buf),
+                             block_counter++, ts, msg ? msg : "");
+  if (ret < 0) return FR_INT_ERR;
+
+  UINT bw;
+  return f_write(&log_file_obj, write_buf, ret, &bw);
+}
+
 void lw_stop(void) {
   if (!paused) {
     flush_io_buf();

@@ -64,7 +64,7 @@ Pin 19 = NC         Pin 20 = GND
 
 | Кнопка | Пин | Тип | Назначение |
 |--------|-----|-----|------------|
-| K0 | PE4 | Active-low, pull-up | Не используется |
+| K0 | PE4 | Active-low, pull-up | Маркер в логе (EXTI falling, 100ms debounce) |
 | K1 | PE3 | Active-low, pull-up | Shutdown (EXTI) |
 | K_UP | PA0 | Active-high, pull-down | Не используется |
 | RST | NRST | — | Аппаратный сброс MCU |

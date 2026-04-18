@@ -202,6 +202,7 @@ static void cmd_help(void) {
          "  fault     - simulate fatal error, write FAULT file\r\n"
          "  stop      - close SD safely (before flash)\r\n"
          "  pause     - flush & close log, keep SD mounted (reboot to resume)\r\n"
+         "  mark [txt]- write marker to log (K0 button or CDC, txt default 'cdc')\r\n"
          "  settime YYYY-MM-DD HH:MM:SS - set RTC (survives reset via VBAT)\r\n"
          "  lastfault - show last fault from BKP regs (persistent)\r\n");
 }
@@ -413,6 +414,13 @@ static void cmd_ls(void) {
 }
 
 static void cmd_get(const char* filename) {
+  // Pause logger BEFORE opening file. FatFS is single-task (FF_FS_REENTRANT=0)
+  // — concurrent f_* from task_producer (cmd_get) and task_sd corrupts state.
+  // lw_pause closes log file, keeps SD mounted, future snapshot/marker calls
+  // from task_sd are no-ops. User must reboot to resume logging.
+  extern volatile int init_ok;
+  if (init_ok) lw_pause();
+
   FIL file;
   FRESULT res = f_open(&file, filename, FA_READ);
   if (res != FR_OK) {
@@ -427,22 +435,27 @@ static void cmd_get(const char* filename) {
 
   printf("FILE:%s:%lu\n", filename, size);
 
-  uint8_t fbuf[512];
+  // Double buffering: CDC_Transmit_FS is async (DMA'd from caller buffer),
+  // so we must not overwrite the buffer until TX completes. Alternate
+  // between two fbufs so f_read can fill one while USB drains the other.
+  static uint8_t fbuf_a[512] __attribute__((aligned(4)));
+  static uint8_t fbuf_b[512] __attribute__((aligned(4)));
+  uint8_t* fbuf = fbuf_a;
   UINT br;
   while (size > 0) {
-    res = f_read(&file, fbuf, sizeof(fbuf), &br);
+    res = f_read(&file, fbuf, 512, &br);
     if (res != FR_OK || br == 0) break;
-    // Send raw bytes via CDC, wait if busy
     uint8_t retries = 200;
     while (CDC_Transmit_FS(fbuf, br) == USBD_BUSY && retries-- > 0) {
       osDelay(1);
     }
     size -= br;
+    fbuf = (fbuf == fbuf_a) ? fbuf_b : fbuf_a;
   }
   f_close(&file);
 
-  // Small delay to let last chunk transmit before sending END marker
-  osDelay(5);
+  // Wait for last TX chunk to drain before END marker
+  osDelay(10);
   printf("\nEND\n");
 
   stream_enabled = was_streaming;
@@ -536,6 +549,22 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
   } else if (strcmp(line, "pause") == 0) {
     if (init_ok) lw_pause();
     printf("paused\r\n");
+  } else if (strncmp(line, "mark", 4) == 0 && (line[4] == 0 || line[4] == ' ')) {
+    extern volatile uint8_t marker_request;
+    extern char marker_cdc_text[];
+    // Wait briefly for task_sd to consume any pending marker before we
+    // overwrite the shared buffer. Bail if task_sd is wedged.
+    uint32_t start = HAL_GetTick();
+    while (marker_request != 0 && HAL_GetTick() - start < 200) { /* spin */ }
+    if (marker_request != 0) {
+      printf("busy\r\n");
+    } else {
+      const char* msg = (line[4] == ' ') ? line + 5 : "cdc";
+      strncpy(marker_cdc_text, msg, 49);
+      marker_cdc_text[49] = 0;
+      marker_request = 2;
+      printf("marked\r\n");
+    }
   } else if (strcmp(line, "lastfault") == 0) {
     cmd_lastfault();
   } else if (strncmp(line, "settime ", 8) == 0) {

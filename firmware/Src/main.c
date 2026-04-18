@@ -73,11 +73,15 @@ const osThreadAttr_t defaultTask_attributes = {
 volatile uint8_t lw_shutdown = 0;
 volatile uint8_t sd_stopped = 0;  // set by task_sd after lw_stop completes
 volatile uint8_t vin_triggered_shutdown = 0;  // 1 = VIN outage (auto-resume), 0 = CDC `stop`
+// Marker request: 0=none, 1=K0 press ("btn"), 2=CDC `mark` (marker_cdc_text).
+// Set by EXTI ISR or CDC task, consumed by task_sd.
+volatile uint8_t marker_request = 0;
+char marker_cdc_text[50];  // filled by CDC before setting marker_request=2
 static ring_Buffer can_rx_buf;
 static cfg_Config config __attribute__((section(".ccmram")));
 static can_FieldValues field_values;
 static uint32_t can_frames_processed = 0;
-static int init_ok = 0;
+volatile int init_ok = 0;
 // Demo mode helper arrays (extracted from config for demo_generate)
 static uint8_t demo_field_types[CFG_MAX_FIELDS];
 static float demo_field_scales[CFG_MAX_FIELDS];
@@ -120,6 +124,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
   if (GPIO_Pin == USR_BTN_3_K1_Pin) {
     lw_shutdown = 1;
     HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, GPIO_PIN_SET); // D2 off (active-low)
+  } else if (GPIO_Pin == USR_BTN_4_K0_Pin) {
+    // 100 ms software debounce — mechanical bounce + human finger timing
+    static uint32_t k0_last_tick = 0;
+    uint32_t now = HAL_GetTick();
+    if (now - k0_last_tick < 100) return;
+    k0_last_tick = now;
+    if (marker_request == 0) marker_request = 1;  // drop if SD hasn't consumed yet
   }
 }
 /* USER CODE END 0 */
@@ -520,6 +531,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(USR_BTN_3_K1_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : USR_BTN_4_K0_Pin */
+  GPIO_InitStruct.Pin = USR_BTN_4_K0_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(USR_BTN_4_K0_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pins : LED_1_Pin LED_2_Pin */
   GPIO_InitStruct.Pin = LED_1_Pin|LED_2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -530,6 +547,9 @@ static void MX_GPIO_Init(void)
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   /* USER CODE END MX_GPIO_Init_2 */
@@ -563,6 +583,14 @@ void SdTaskEntry(void *argument)
     size_t rec_len = field_values.record_length;
     memcpy(snapshot, field_values.values, rec_len);
     osMutexRelease(shadow_mutex);
+
+    // Marker drained before snapshot so it lands at the chronologically
+    // correct spot between data blocks.
+    if (marker_request) {
+      const char* msg = (marker_request == 2) ? marker_cdc_text : "btn";
+      lw_write_marker(msg);
+      marker_request = 0;
+    }
 
     lw_write_snapshot(snapshot, rec_len);
   }

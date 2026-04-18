@@ -13,6 +13,12 @@ int lw_init(cfg_Config* cfg_out, can_FieldValues* fv_out);
 // Called by task_sd at log_interval_ms cadence (no internal timing).
 FRESULT lw_write_snapshot(const uint8_t* values, size_t record_length);
 
+// Write a marker block (MLG native type 0x01). `msg` is truncated to 49
+// chars. Flushes the I/O buffer first so markers land in chronological
+// order between data blocks. Must be called from task_sd only (no
+// serialization with lw_write_snapshot).
+FRESULT lw_write_marker(const char* msg);
+
 // Flush and close.
 void lw_stop(void);
 

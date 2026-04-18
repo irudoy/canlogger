@@ -53,6 +53,7 @@ void BusFault_Handler(void);
 void UsageFault_Handler(void);
 void DebugMon_Handler(void);
 void EXTI3_IRQHandler(void);
+void EXTI4_IRQHandler(void);
 void CAN1_RX0_IRQHandler(void);
 void SDIO_IRQHandler(void);
 void TIM6_DAC_IRQHandler(void);

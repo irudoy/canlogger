@@ -27,10 +27,12 @@ picocom /dev/cu.usbmodemXXXX -b 115200
 | `stream` | Включить периодический вывод (1 раз/сек). Любой ввод выключает stream |
 | `config` | Показать загруженный конфиг |
 | `ls` | Список файлов на SD с размерами |
-| `get <f>` | Скачать файл с SD (используйте `usb_get.py`) |
-| `put <f> N` | Загрузить N байт в файл на SD |
+| `get <f>` | Скачать файл с SD (используйте `usb_get.py`). Авто-пауза логгера, reboot для продолжения записи |
+| `put <f> N` | Загрузить N байт в файл на SD. Авто-пауза логгера, reboot для применения нового конфига |
 | `fault` | Симулировать fatal error (записать FAULT файл) |
 | `stop` | Безопасно закрыть SD (перед прошивкой) |
+| `pause` | Закрыть лог-файл, SD остаётся смонтированной (reboot для продолжения записи) |
+| `mark [txt]` | Записать маркер в лог (MLG native block type 0x01). Без аргумента — `cdc`. Также по кнопке K0 (msg=`btn`) |
 | `settime YYYY-MM-DD HH:MM:SS` | Установить RTC (переживёт reset пока VBAT жив) |
 | `lastfault` | Последний fault из BKP регистров + session counter |
 
@@ -47,6 +49,8 @@ Commands:
   put <f> N - upload N bytes to file
   fault     - simulate fatal error, write FAULT file
   stop      - close SD safely (before flash)
+  pause     - flush & close log, keep SD mounted (reboot to resume)
+  mark [txt]- write marker to log (K0 button or CDC, txt default 'cdc')
   settime YYYY-MM-DD HH:MM:SS - set RTC (survives reset via VBAT)
   lastfault - show last fault from BKP regs (persistent)
 ```
