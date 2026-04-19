@@ -107,6 +107,6 @@ See `docs/HARDWARE.md` for full pin assignments, SWD wiring, LED states, hat des
 - CAN1: PB8 (RX), PB9 (TX) — configurable bitrate (default 500 kbit/s)
 - CAN input: modified MCP2515 board (TJA1050 transceiver only, SO→TX, SI→RX)
 - USB: PA11/PA12 — USB CDC debug output (Virtual COM Port, `/dev/cu.usbmodemXXXX`)
-- LEDs: PA6 (D2), PA7 (D3), active-low. Button: PE3/K1 (shutdown)
+- LEDs: PA6 (D2), PA7 (D3), active-low. Buttons: PE3/K1 (shutdown), PE4/K0 (MLG marker)
 - E2E test source: `../cansult` (Nissan Consult → CAN, 3 messages @ 20Hz)
 - Known issue: cansult UART↔ECU connection drops after some time
