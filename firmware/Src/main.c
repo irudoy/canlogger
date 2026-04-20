@@ -125,11 +125,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     lw_shutdown = 1;
     HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, GPIO_PIN_SET); // D2 off (active-low)
   } else if (GPIO_Pin == USR_BTN_4_K0_Pin) {
-    // 100 ms software debounce — mechanical bounce + human finger timing
+    // Debounce: any edge (including release-bounce that also trips FALLING)
+    // extends the blackout. Window must exceed typical hold + release time.
     static uint32_t k0_last_tick = 0;
     uint32_t now = HAL_GetTick();
-    if (now - k0_last_tick < 100) return;
+    uint32_t since = now - k0_last_tick;
     k0_last_tick = now;
+    if (since < 300) return;
     if (marker_request == 0) marker_request = 1;  // drop if SD hasn't consumed yet
   }
 }

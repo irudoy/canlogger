@@ -64,12 +64,13 @@
 Задачи:
 - [x] Graceful shutdown при пропадании питания — VIN_SENSE ADC + armed debounce + lw_stop + auto-resume через NVIC_SystemReset, провалидировано на макете с суперкапом
 - [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit (прототип на breadboard, см. [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
+- [ ] RC-debounce кнопок маркера/shutdown на hat (100 нФ + опц. 1–10 кОм у connector'а PE4/PE3) — убирает программный 300мс lockout, снимает проблему дребезга контактов при отпускании. Отладочные K0/K1 на основной плате не монтировать в production
 - [x] Поддержка extended CAN ID (29-bit) в конфиге и can_map — явный ключ `is_extended = 1` в `[field]`, hardware filter корректно настраивается на IDE=1 (используется для AEM 30-0300 `0x180`)
 - [x] Sub-byte (1-7 бит) поля в конфиге — ключи `start_bit` + `bit_length` для индивидуальных битовых флагов (статус ECU, реле, соленоиды)
 - [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
 - [x] Поле "Date" в MLG (U32 unix timestamp, display_style=MLG_DATE) — синтетическое поле первым в каждой записи, +4 байта/snapshot
-- [x] Маркеры в MLG (native block type 0x01) — кнопка K0 (PE4, EXTI falling, 100ms debounce, msg=`btn`) + CDC `mark [txt]`. Помогает быстро находить события в логе в MegaLogViewer
+- [x] Маркеры в MLG (native block type 0x01) — кнопка K0 (PE4, EXTI falling, 300ms any-edge debounce, msg=`btn`) + CDC `mark [txt]`. На запись маркера D2 коротко гаснет (~75мс). Помогает быстро находить события в логе в MegaLogViewer
 - [ ] Настройка max_file_size через config.ini (сейчас хардкод 512 МБ)
 - [ ] Отладочный лог на SD — системные события, ошибки, сэмплы данных по условию
 - [ ] Логирование статистики (принято/потеряно/записано фреймов)

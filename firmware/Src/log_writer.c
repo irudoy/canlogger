@@ -14,6 +14,8 @@
 #define LED_OFF 1
 #define BLINK_INTERVAL_NORMAL 500
 #define BLINK_INTERVAL_ERROR 100
+#define MARKER_BLINK_INTERVAL 75
+#define MARKER_BLINK_TOGGLES 2
 #define MAX_FILE_SIZE (32 * 1024 * 1024)
 #define MAX_ERROR_COUNT 5
 #define CONFIG_FILE_NAME "config.ini"
@@ -28,6 +30,7 @@ static FIL log_file_obj;
 static char log_file_name[32];
 static uint32_t last_tick_led1 = 0;
 static uint32_t last_tick_led2 = 0;
+static uint8_t marker_blink_remaining = 0;
 static int error_state = 0;
 static int paused = 0;
 static uint32_t file_counter = 0;
@@ -261,7 +264,14 @@ FRESULT lw_write_marker(const char* msg) {
   if (ret < 0) return FR_INT_ERR;
 
   UINT bw;
-  return f_write(&log_file_obj, write_buf, ret, &bw);
+  FRESULT wres = f_write(&log_file_obj, write_buf, ret, &bw);
+  if (wres == FR_OK) {
+    // Visual feedback: toggle LED1 a few times. LED1 is ON during recording,
+    // so toggles produce short dark pulses and end back ON (even toggle count).
+    marker_blink_remaining = MARKER_BLINK_TOGGLES;
+    last_tick_led1 = HAL_GetTick() - MARKER_BLINK_INTERVAL;
+  }
+  return wres;
 }
 
 void lw_stop(void) {
@@ -291,6 +301,14 @@ void lw_update_leds(void) {
     toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_ERROR);
   } else {
     toggle_led(LED2, &last_tick_led2, BLINK_INTERVAL_NORMAL);
+    if (marker_blink_remaining > 0) {
+      uint32_t now = HAL_GetTick();
+      if (now - last_tick_led1 >= MARKER_BLINK_INTERVAL) {
+        HAL_GPIO_TogglePin(LED_1_GPIO_Port, LED_1_Pin);
+        last_tick_led1 = now;
+        marker_blink_remaining--;
+      }
+    }
   }
 }
 
