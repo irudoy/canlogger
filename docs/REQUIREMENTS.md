@@ -93,7 +93,7 @@
 - [x] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):
   - [x] Проверять результат f_sync — recovery при ошибке
   - [x] Recovery вместо fatal: close → remount → new file → продолжить запись
-  - [x] `recover_file` делает `f_truncate` + `f_sync` перед `f_close` — без этого на SD оставались 32-МБ файлы с мусором в хвосте из переиспользованных кластеров (видно в log-19-04: два файла ровно MAX_FILE_SIZE с обрывом после первого recovery)
+  - [x] `recover_file` делает `f_truncate` + `f_sync` перед `f_close` — без этого на SD оставались 32-МБ файлы с мусором в хвосте из переиспользованных кластеров (видно в log-19-04: два файла ровно MAX_FILE_SIZE с обрывом после первого recovery). Truncate/sync гейтятся через `had_clean_sync`: вызываются только если хотя бы один периодический `f_sync` в текущем файле прошёл успешно. Иначе FAT-стейт после свежей ошибки подозрительный, дополнительные SDIO-ops могут повиснуть — пропускаем, старый файл остаётся 32 MB с мусорным хвостом, новый файл создаётся чистым
   - [~] ~~Уменьшить интервал f_sync (100 → 10 блоков)~~ — не нужно: supercap + graceful shutdown гарантируют flush при выключении, а частый f_sync увеличивает шанс GC stall
   - [x] Заменить HAL_Delay(1000) в recover_file() на non-blocking — osDelay (FreeRTOS, блокирует только task_sd)
   - [x] Счётчик recovery в статусе (rec=N lastrec=FR_X@site)

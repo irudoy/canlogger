@@ -44,6 +44,10 @@ static FRESULT last_rec_res = FR_OK;
 static const char* last_rec_at = "";
 static uint8_t block_counter = 0;
 static uint32_t last_log_tick = 0;
+// Flips to 1 after a successful f_sync in the current file's lifetime.
+// Gates the truncate/sync calls in recover_file() — if we've never had a
+// clean sync, the FAT state is suspect and further ops risk hanging SDIO.
+static uint8_t had_clean_sync = 0;
 
 // Pointer to config (set at init, used for MLG header writing)
 static const cfg_Config* cached_cfg = NULL;
@@ -234,6 +238,8 @@ FRESULT lw_write_snapshot(const uint8_t* values, size_t rec_length) {
       last_rec_at = "sync";
       FRESULT rec = recover_file();
       if (rec != FR_OK) return handle_error(rec, "sync");
+    } else {
+      had_clean_sync = 1;
     }
   }
 
@@ -348,6 +354,15 @@ static FRESULT recover_file(void) {
   if (recovery_count >= MAX_RECOVERY_COUNT) {
     return FR_DISK_ERR;  // persistent failure → handle_error → fault state
   }
+  // Shrink 32 MB preallocation down to actually-written data before closing.
+  // Only attempt if at least one f_sync has succeeded in this file's lifetime
+  // — otherwise FAT state is suspect and further SDIO ops may hang. When
+  // skipped, the old file stays at full 32 MB with garbage tail, but a clean
+  // new file gets created below. Better a corrupt old file than a hung task.
+  if (had_clean_sync) {
+    f_truncate(&log_file_obj);
+    f_sync(&log_file_obj);
+  }
   f_close(&log_file_obj);
   // Remount SD — card may need full re-init after GC stall
   f_mount(0, "", 0);
@@ -415,6 +430,7 @@ file_created:
   }
 
   block_counter = 0;
+  had_clean_sync = 0;  // fresh file — no clean sync yet
   return FR_OK;
 }
 
