@@ -95,5 +95,5 @@ docs/ppk-measurements/
 ## Связанные документы
 
 - `docs/HARDWARE.md` — схема hat с supercap и VIN_SENSE
-- `docs/STRESS_TEST_128U16_PLAN.md` — стресс-тест (sdw max_lat = 950 ms)
+- `docs/postmortem/STRESS_TEST_128U16_PLAN.md` — стресс-тест (sdw max_lat = 950 ms)
 - `docs/REQUIREMENTS.md` → v1.0 → Graceful shutdown

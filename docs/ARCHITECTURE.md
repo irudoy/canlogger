@@ -205,7 +205,7 @@ void led_set_state(int state);  // LED_LOGGING, LED_ERROR, LED_STOPPED, LED_NO_C
 
 Архитектура: snapshot-модель по образцу rusEFI `MMCmonThread`.
 Shared `field_values` — аналог rusEFI `outputChannels`.
-Подробности миграции: `docs/SD_WRITER_DECOUPLING.md`.
+Подробности миграции: `docs/postmortem/SD_WRITER_DECOUPLING.md`.
 
 ```
           CAN ISR (NVIC prio 5)

@@ -90,7 +90,7 @@
 - [x] AEM X-Series UEGO 30-0300 (AEMnet CAN): Lambda, AFR (computed scale 0.001465), O2%, SysVolts на extended ID `0x180`
 - [x] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
 - [x] DMA для SDIO (reorder + PBURST_INC4, TX_UNDERRUN исправлен)
-- [x] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):
+- [x] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [postmortem/SD_ERRORS.md](postmortem/SD_ERRORS.md), [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)):
   - [x] Проверять результат f_sync — recovery при ошибке
   - [x] Recovery вместо fatal: close → remount → new file → продолжить запись
   - [x] `recover_file` делает `f_truncate` + `f_sync` перед `f_close` — без этого на SD оставались 32-МБ файлы с мусором в хвосте из переиспользованных кластеров (видно в log-19-04: два файла ровно MAX_FILE_SIZE с обрывом после первого recovery). Truncate/sync гейтятся через `had_clean_sync`: вызываются только если хотя бы один периодический `f_sync` в текущем файле прошёл успешно. Иначе FAT-стейт после свежей ошибки подозрительный, дополнительные SDIO-ops могут повиснуть — пропускаем, старый файл остаётся 32 MB с мусорным хвостом, новый файл создаётся чистым
@@ -100,12 +100,12 @@
   - [x] Убрать дублирование mlg_fields[256] (23KB RAM) — строить MLG header на лету из cfg_Config
   - [x] recover_file() блокировала main loop на 30с — теперь блокирует только task_sd (osDelay), CAN drain продолжается
   - [x] Stress test max pressure: 128 полей / 32 CAN ID / 1ms — решено миграцией на FreeRTOS (GC stalls блокируют только task_sd)
-- [x] Исследовать CMD_RSP_TIMEOUT при DMA записи — см. [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)
-  - [x] Анализ: вероятно CMD12 stop при busy карте, см. docs/CMD_RSP_TIMEOUT.md
+- [x] Исследовать CMD_RSP_TIMEOUT при DMA записи — см. [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)
+  - [x] Анализ: вероятно CMD12 stop при busy карте, см. docs/postmortem/CMD_RSP_TIMEOUT.md
   - [x] SDIO error counters через HAL_SD_ErrorCallback + hal.ErrorCode в CDC status
   - [x] FAULT file на SD при фатальной ошибке (FAULT_NN.TXT с полной диагностикой)
 - [x] **SD writer decoupling — миграция на FreeRTOS**
-      (см. [SD_WRITER_DECOUPLING.md](SD_WRITER_DECOUPLING.md)):
+      (см. [postmortem/SD_WRITER_DECOUPLING.md](postmortem/SD_WRITER_DECOUPLING.md)):
   - корневая причина: blocking `SD_write` в main loop → GC stalls до 710 мс
     останавливают весь pipeline → **~12% потеря sample** на 2-часовом тесте
     (64 U16 @ 250 Hz: expected 4000 fps, actual 3509 fps)
@@ -118,7 +118,7 @@
     CAN RX + can_map в высокоприоритетном task
   - FatFS должен быть reentrant (`FF_FS_REENTRANT=1`)
   - `SD_status` retry: `HAL_Delay` → `osDelay` (yield-friendly)
-  - финальная проверка: `docs/STRESS_TEST_128U16_PLAN.md`
+  - финальная проверка: `docs/postmortem/STRESS_TEST_128U16_PLAN.md`
 - [x] `RING_BUF_SIZE` 1024 → 4096 (64 KB, покрывает 225 мс @ 18k fps):
   - разблокировано оптимизацией RAM (config → CCM, mlg_fields убран)
   - комфорт: 8192 (128 KB, 450 мс) — возможен при переносе `can_rx_buf` в CCM (сейчас не помещается)

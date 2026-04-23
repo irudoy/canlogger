@@ -168,7 +168,7 @@ Baseline comparison (до FreeRTOS, 64U16@250Hz): `frames_effective_rate` был
 
 ## Связанные документы
 
-- `docs/SD_WRITER_DECOUPLING.md` — архитектурный фикс, мотивация, план миграции
-- `docs/REQUIREMENTS.md` → v1.0 → roadmap entries SD decoupling + RB sizing
-- `docs/SD_ERRORS.md` → Resolution 2026-04-10 — предыдущий SD_status retry fix
-- `docs/DEBUG.md` → описание полей cmd_status (sdw, sdst, rb)
+- `SD_WRITER_DECOUPLING.md` — архитектурный фикс, мотивация, план миграции
+- `../REQUIREMENTS.md` → v1.0 → roadmap entries SD decoupling + RB sizing
+- `SD_ERRORS.md` → Resolution 2026-04-10 — предыдущий SD_status retry fix
+- `../DEBUG.md` → описание полей cmd_status (sdw, sdst, rb)

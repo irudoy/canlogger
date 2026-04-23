@@ -220,7 +220,7 @@ task_sd (osPriorityBelowNormal):
 
 - Long-term stress test на `demo_stress_64u16.ini` (≥ 2 ч)
 - Max stress test `demo_stress_128u16.ini` (128 U16 × 1 kHz) — см.
-  `docs/STRESS_TEST_128U16_PLAN.md`
+  `STRESS_TEST_128U16_PLAN.md`
 
 ## Историческая позиция (до миграции)
 
@@ -228,8 +228,8 @@ task_sd (osPriorityBelowNormal):
 - **Fix выбран**: миграция на FreeRTOS с выделенным SD writer task
 - **Референс**: rusEFI mmc_card.cpp / thread_priority.h — точно такая
   же архитектура, обкатана годами на той же STM32F4 + SDIO DMA
-- **Roadmap**: см. `docs/REQUIREMENTS.md` → v1.0 → "SD writer decoupling"
-- **Тесты до/после**: см. `docs/STRESS_TEST_128U16_PLAN.md` — финальный
+- **Roadmap**: см. `../REQUIREMENTS.md` → v1.0 → "SD writer decoupling"
+- **Тесты до/после**: см. `STRESS_TEST_128U16_PLAN.md` — финальный
   max stress test после миграции, baseline сейчас и сравнение потом
 
 ## References
@@ -241,5 +241,5 @@ task_sd (osPriorityBelowNormal):
 - ChibiOS `os/hal/src/hal_sdc.c` — sdcWrite / PROGRAMMING poll loop
 - STM32CubeMX User Manual — FreeRTOS CMSIS_V2 configuration
 - FatFS `ffconf.h` — FF_FS_REENTRANT
-- `docs/SD_ERRORS.md` — история SD GC stall исследования
-- `docs/CMD_RSP_TIMEOUT.md` — CMD12 и busy-state polling details
+- `SD_ERRORS.md` — история SD GC stall исследования
+- `CMD_RSP_TIMEOUT.md` — CMD12 и busy-state polling details
