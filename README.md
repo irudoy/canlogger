@@ -66,7 +66,7 @@ Full reference: [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md).
 - `firmware/Src/` — HAL glue and CubeMX-generated code, edits only inside `USER CODE` sections
 - `firmware/test/` — host tests + config examples
 - `firmware/mlg-test/` — Node.js MLG validator
-- `hardware/` — KiCad projects for the hat and schematics
+- `hardware/` — reserved for KiCad projects of the hat (work in progress)
 - `docs/` — project documentation (see [docs/README.md](docs/README.md))
 
 ## Build and Test
@@ -94,3 +94,7 @@ Debugging targets (`ocd-server`, `ocd-debug`, `gdb-server`, `debug`, `gdb-read`)
 ## Status
 
 Firmware is working — it logs a Nissan ECU via the [cansult](https://github.com/irudoy/cansult) bridge and an AEM X-Series UEGO lambda controller. Hat PCB is in progress (breadboard prototype validated). Current roadmap and open tasks live in [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
