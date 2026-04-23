@@ -61,6 +61,10 @@ Each `[field]` section defines one logged parameter. The order of sections deter
 | `display_style` | no | 0 | 0=Float, 1=Hex, 2=Bits, 4=On/Off, 5=Yes/No, 6=High/Low |
 | `category` | no | *(empty)* | Group name in MegaLogViewer (max 33 chars) |
 | `lut` | no | -- | Lookup table for non-linear conversion (see below) |
+| `valid_min` | no | -- | Reject frames where the computed display value falls below this threshold |
+| `valid_max` | no | -- | Reject frames where the computed display value exceeds this threshold |
+| `invalid_strategy` | no | `last_good` | What to do on rejection: `last_good` (keep previous value), `clamp` (saturate to min/max), `skip` (do not update shadow buffer) |
+| `preset` | no | `none` | Plug-in sensor-fault detector. `aem_uego` rejects raw `0xFFFF` on a 16-bit field (AEM X-Series warmup/free-air-cal/sensor-fault marker). Applies *before* `valid_min/max` |
 
 ### Constraints
 
@@ -205,6 +209,55 @@ category = Cansult
 ```
 
 Bit ordering is LSB = bit 0. Sub-byte fields produce raw 0/1 values in the MLG; use `display_style = 4` (On/Off) or `5` (Yes/No) for nicer rendering in MegaLogViewer.
+
+## Plausibility Filtering
+
+CAN sources without per-frame integrity protection (Nissan Consult, raw OBD streams, hobbyist gauges) can emit impossible values when a single UART or bit-stuff byte is shifted. Raw RPM of 745 663 and AFR of 96 on decel fuel-cut are both real examples from production logs. MegaLogViewer auto-scales the timeline to those spikes, making the useful range unreadable.
+
+Add three optional keys per field:
+
+- `valid_min`, `valid_max` — bounds expressed in **display units** (the value after `scale`, `offset`, and any `lut` is applied).
+- `invalid_strategy` — how to treat a rejected sample:
+  - `last_good` (default) — shadow buffer keeps the previous known-good value; the MLG stream receives a flat-line until a plausible frame arrives.
+  - `clamp` — saturate the value to whichever bound was crossed. Useful when you want the chart to show "at limit" rather than a gap.
+  - `skip` — do not update the shadow buffer at all. Identical to `last_good` in the current writer (shadow stays), kept as an explicit intent marker for future per-field change-detection.
+
+Sensor-specific fault encodings that cannot be expressed as a bound are handled by presets:
+
+- `preset = aem_uego` — on a 16-bit field, rejects raw `0xFFFF`. AEM X-Series UEGO gauges emit this value during warmup, free-air calibration, and any sensor fault; without it decel fuel-cut produces a spike of AFR ≈ 96.
+
+```ini
+# AEM UEGO: reject sensor-fault marker and clamp physical range
+[field]
+can_id = 0x180
+is_extended = 1
+name = AFR
+units = :1
+start_byte = 0
+bit_length = 16
+type = U16
+is_big_endian = 1
+scale = 0.001465
+preset = aem_uego
+valid_min = 7
+valid_max = 22
+invalid_strategy = last_good
+
+# RPM: any value > 9000 is a UART framing shift on the cansult side
+[field]
+can_id = 0x667
+name = RPM
+units = rpm
+start_byte = 1
+bit_length = 16
+type = U16
+is_big_endian = 1
+scale = 12.5
+valid_max = 9000
+invalid_strategy = last_good
+```
+
+Order of evaluation: extract → preset check → LUT → valid_min/max check → write to shadow (or apply strategy).
 
 ## Choosing the Right Data Type
 

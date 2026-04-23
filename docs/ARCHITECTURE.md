@@ -63,6 +63,12 @@ typedef struct {
   char     name[CFG_NAME_SIZE];
   char     units[CFG_UNITS_SIZE];
   char     category[CFG_CAT_SIZE];
+  cfg_LutPoint lut[CFG_LUT_MAX];
+  uint8_t  lut_count;
+  float    valid_min, valid_max;       // display-unit bounds (optional)
+  uint8_t  has_valid_min, has_valid_max;
+  uint8_t  invalid_strategy;           // CFG_INVALID_LAST_GOOD|CLAMP|SKIP
+  uint8_t  preset;                     // CFG_PRESET_NONE|AEM_UEGO
 } cfg_Field;
 
 typedef struct {
@@ -293,6 +299,10 @@ category = Engine
 | `display_style` | нет | 0 | Стиль отображения (0=Float) |
 | `category` | нет | "" | Категория для группировки в MLV |
 | `lut` | нет | — | Lookup table для нелинейной конверсии (см. ниже) |
+| `valid_min` | нет | — | Нижняя граница plausibility-фильтра (display units; применяется после scale/offset/LUT) |
+| `valid_max` | нет | — | Верхняя граница plausibility-фильтра (display units) |
+| `invalid_strategy` | нет | `last_good` | Реакция на outlier: `last_good` (повторить предыдущее значение), `clamp` (насытить до границы), `skip` (не обновлять shadow) |
+| `preset` | нет | `none` | Пресет сенсор-specific fault detector, дополняет `valid_min/max`. `aem_uego` отбрасывает raw `0xFFFF` на 16-битном поле (AEM warmup / free-air cal / sensor fault). Применяется до `valid_min/max` |
 | `demo_func` | нет | — | Функция генерации demo-данных: sine/ramp/square/noise/const |
 | `demo_min` | нет | 0 | Минимальное значение (display units) |
 | `demo_max` | нет | 0 | Максимальное значение (display units) |

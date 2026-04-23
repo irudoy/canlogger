@@ -10,6 +10,18 @@
 #define CFG_CAT_SIZE   34
 #define CFG_LUT_MAX    16
 
+// invalid_strategy: what to do when extracted value fails valid_min/max check.
+// Check is performed on the display-unit value after scale+offset (and LUT).
+// Default = LAST_GOOD: repeats the previous known-good value (or 0 on first frame).
+#define CFG_INVALID_LAST_GOOD 0
+#define CFG_INVALID_CLAMP     1  // saturate to valid_min or valid_max
+#define CFG_INVALID_SKIP      2  // don't update shadow buffer at all
+
+// preset: per-field plug-in fault detector with custom logic the INI cannot
+// express (e.g. AEM UEGO: value==65535 means sensor fault/warmup).
+#define CFG_PRESET_NONE       0
+#define CFG_PRESET_AEM_UEGO   1  // reject raw 0xFFFF on 16-bit Lambda/AFR
+
 typedef struct {
   uint16_t input;
   int16_t  output;
@@ -32,6 +44,15 @@ typedef struct {
   char     category[CFG_CAT_SIZE];
   cfg_LutPoint lut[CFG_LUT_MAX];
   uint8_t  lut_count;
+  // Plausibility / sanity filtering — applied after scale+offset (and LUT).
+  // valid_min/valid_max are in display units. "has_" flags let us distinguish
+  // "no limit set" from "limit set to 0.0".
+  float    valid_min;
+  float    valid_max;
+  uint8_t  has_valid_min;
+  uint8_t  has_valid_max;
+  uint8_t  invalid_strategy; // CFG_INVALID_*
+  uint8_t  preset;           // CFG_PRESET_*
 } cfg_Field;
 
 typedef struct {

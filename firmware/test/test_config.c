@@ -431,6 +431,91 @@ void test_parse_cansult_config(void) {
   TEST_ASSERT_EQUAL(7, cfg.num_can_ids);
 }
 
+// --- Validation keys (valid_min / valid_max / invalid_strategy / preset) ---
+
+void test_parse_valid_min_max(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 10\n"
+    "[field]\n"
+    "can_id = 0x100\n"
+    "name = RPM\n"
+    "units = rpm\n"
+    "start_byte = 0\n"
+    "bit_length = 16\n"
+    "type = U16\n"
+    "scale = 12.5\n"
+    "valid_min = 0\n"
+    "valid_max = 9000\n";
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(text, strlen(text), &cfg));
+  TEST_ASSERT_EQUAL(1, cfg.fields[0].has_valid_min);
+  TEST_ASSERT_EQUAL(1, cfg.fields[0].has_valid_max);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, cfg.fields[0].valid_min);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 9000.0f, cfg.fields[0].valid_max);
+  TEST_ASSERT_EQUAL(CFG_INVALID_LAST_GOOD, cfg.fields[0].invalid_strategy);
+}
+
+void test_parse_invalid_strategy_values(void) {
+  const char* tpl =
+    "[logger]\n"
+    "interval_ms = 10\n"
+    "[field]\n"
+    "can_id = 0x100\n"
+    "name = Test\n"
+    "start_byte = 0\n"
+    "bit_length = 8\n"
+    "type = U08\n"
+    "valid_max = 10\n"
+    "invalid_strategy = %s\n";
+  char buf[256];
+
+  snprintf(buf, sizeof(buf), tpl, "last_good");
+  memset(&cfg, 0, sizeof(cfg));
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(buf, strlen(buf), &cfg));
+  TEST_ASSERT_EQUAL(CFG_INVALID_LAST_GOOD, cfg.fields[0].invalid_strategy);
+
+  snprintf(buf, sizeof(buf), tpl, "clamp");
+  memset(&cfg, 0, sizeof(cfg));
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(buf, strlen(buf), &cfg));
+  TEST_ASSERT_EQUAL(CFG_INVALID_CLAMP, cfg.fields[0].invalid_strategy);
+
+  snprintf(buf, sizeof(buf), tpl, "skip");
+  memset(&cfg, 0, sizeof(cfg));
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(buf, strlen(buf), &cfg));
+  TEST_ASSERT_EQUAL(CFG_INVALID_SKIP, cfg.fields[0].invalid_strategy);
+}
+
+void test_parse_invalid_strategy_unknown_rejected(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 10\n"
+    "[field]\n"
+    "can_id = 0x100\n"
+    "name = Test\n"
+    "start_byte = 0\n"
+    "bit_length = 8\n"
+    "type = U08\n"
+    "invalid_strategy = bogus\n";
+  TEST_ASSERT_EQUAL(CFG_ERR_VALUE, cfg_parse(text, strlen(text), &cfg));
+}
+
+void test_parse_preset_aem_uego(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 10\n"
+    "[field]\n"
+    "can_id = 0x180\n"
+    "is_extended = 1\n"
+    "name = Lambda\n"
+    "start_byte = 0\n"
+    "bit_length = 16\n"
+    "type = U16\n"
+    "is_big_endian = 1\n"
+    "preset = aem_uego\n";
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(text, strlen(text), &cfg));
+  TEST_ASSERT_EQUAL(CFG_PRESET_AEM_UEGO, cfg.fields[0].preset);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_parse_minimal);
@@ -455,5 +540,9 @@ int main(void) {
   RUN_TEST(test_parse_lut_single_point_rejected);
   RUN_TEST(test_no_lut_by_default);
   RUN_TEST(test_parse_cansult_config);
+  RUN_TEST(test_parse_valid_min_max);
+  RUN_TEST(test_parse_invalid_strategy_values);
+  RUN_TEST(test_parse_invalid_strategy_unknown_rejected);
+  RUN_TEST(test_parse_preset_aem_uego);
   return UNITY_END();
 }

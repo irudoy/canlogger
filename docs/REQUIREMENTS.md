@@ -67,6 +67,7 @@
 - [ ] RC-debounce кнопок маркера/shutdown на hat (100 нФ + опц. 1–10 кОм у connector'а PE4/PE3) — убирает программный 300мс lockout, снимает проблему дребезга контактов при отпускании. Отладочные K0/K1 на основной плате не монтировать в production
 - [x] Поддержка extended CAN ID (29-bit) в конфиге и can_map — явный ключ `is_extended = 1` в `[field]`, hardware filter корректно настраивается на IDE=1 (используется для AEM 30-0300 `0x180`)
 - [x] Sub-byte (1-7 бит) поля в конфиге — ключи `start_bit` + `bit_length` для индивидуальных битовых флагов (статус ECU, реле, соленоиды)
+- [x] Plausibility-фильтр поля в конфиге — ключи `valid_min` / `valid_max` (в display-единицах, после scale/offset/LUT) + `invalid_strategy = last_good | clamp | skip`. Пресеты под sensor-fault энкодинги (`preset = aem_uego` → rejects raw 0xFFFF на AFR/Lambda). Закрывает RPM-спайки от UART-сдвигов cansult и AFR=96 на decel fuel-cut
 - [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
 - [ ] Валидация конфига при загрузке с диагностикой ошибок
 - [x] Поле "Date" в MLG (U32 unix timestamp, display_style=MLG_DATE) — синтетическое поле первым в каждой записи, +4 байта/snapshot
@@ -92,6 +93,7 @@
 - [x] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [SD_ERRORS.md](SD_ERRORS.md), [CMD_RSP_TIMEOUT.md](CMD_RSP_TIMEOUT.md)):
   - [x] Проверять результат f_sync — recovery при ошибке
   - [x] Recovery вместо fatal: close → remount → new file → продолжить запись
+  - [x] `recover_file` делает `f_truncate` + `f_sync` перед `f_close` — без этого на SD оставались 32-МБ файлы с мусором в хвосте из переиспользованных кластеров (видно в log-19-04: два файла ровно MAX_FILE_SIZE с обрывом после первого recovery)
   - [~] ~~Уменьшить интервал f_sync (100 → 10 блоков)~~ — не нужно: supercap + graceful shutdown гарантируют flush при выключении, а частый f_sync увеличивает шанс GC stall
   - [x] Заменить HAL_Delay(1000) в recover_file() на non-blocking — osDelay (FreeRTOS, блокирует только task_sd)
   - [x] Счётчик recovery в статусе (rec=N lastrec=FR_X@site)

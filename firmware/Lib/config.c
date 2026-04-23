@@ -220,6 +220,21 @@ static int process_line(char* line, ParseState* st) {
       copy_str(f->category, val_buf, CFG_CAT_SIZE);
     } else if (strcmp(raw_key, "lut") == 0) {
       if (parse_lut(val_buf, f->lut, &f->lut_count) != 0) return CFG_ERR_VALUE;
+    } else if (strcmp(raw_key, "valid_min") == 0) {
+      f->valid_min = parse_float(val_buf);
+      f->has_valid_min = 1;
+    } else if (strcmp(raw_key, "valid_max") == 0) {
+      f->valid_max = parse_float(val_buf);
+      f->has_valid_max = 1;
+    } else if (strcmp(raw_key, "invalid_strategy") == 0) {
+      if (strcmp(val_buf, "last_good") == 0)    f->invalid_strategy = CFG_INVALID_LAST_GOOD;
+      else if (strcmp(val_buf, "clamp") == 0)   f->invalid_strategy = CFG_INVALID_CLAMP;
+      else if (strcmp(val_buf, "skip") == 0)    f->invalid_strategy = CFG_INVALID_SKIP;
+      else return CFG_ERR_VALUE;
+    } else if (strcmp(raw_key, "preset") == 0) {
+      if (strcmp(val_buf, "none") == 0)         f->preset = CFG_PRESET_NONE;
+      else if (strcmp(val_buf, "aem_uego") == 0) f->preset = CFG_PRESET_AEM_UEGO;
+      else return CFG_ERR_VALUE;
     } else if (strcmp(raw_key, "demo_func") == 0) {
       out->demo_gen.params[fi].func = demo_parse_func(val_buf);
     } else if (strcmp(raw_key, "demo_min") == 0) {

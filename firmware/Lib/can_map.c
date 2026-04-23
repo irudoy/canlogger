@@ -82,27 +82,99 @@ static void write_value(uint8_t* dest, uint8_t type, float display_val, float sc
   }
 }
 
+// Read current shadow value as raw integer (big-endian), then convert to display units.
+// Needed so plausibility checks compare in the same units as config thresholds.
+static float raw_to_display(const uint8_t* src, uint8_t type, float scale, float offset) {
+  int32_t ival = 0;
+  switch (type) {
+    case 0: ival = src[0]; break;
+    case 1: ival = (int8_t)src[0]; break;
+    case 2: ival = ((uint16_t)src[0] << 8) | src[1]; break;
+    case 3: {
+      int16_t s = (int16_t)(((uint16_t)src[0] << 8) | src[1]);
+      ival = s;
+      break;
+    }
+    default: return 0.0f;
+  }
+  return ((float)ival + offset) * scale;
+}
+
+// Applies preset-specific sensor-fault detectors that cannot be expressed as a
+// simple valid_min/valid_max range. Returns 1 if preset rejects the value.
+static int preset_rejects(const cfg_Field* f, const uint8_t* extracted) {
+  if (f->preset == CFG_PRESET_AEM_UEGO && f->bit_length == 16) {
+    // AEM X-Series UEGO streams 0xFFFF for Warmup/Free-Air-Cal/Sensor-Fault
+    // on the Lambda/AFR word. On decel fuel-cut the gauge also returns the
+    // maxed-out reading; either way 0xFFFF is not real combustion data.
+    uint16_t raw = ((uint16_t)extracted[0] << 8) | extracted[1];
+    return raw == 0xFFFF;
+  }
+  return 0;
+}
+
+// Applies invalid_strategy. dest points to the field's slot in the shadow
+// buffer; extracted holds the freshly decoded bytes that might be rejected.
+// Returns 1 if shadow buffer was updated, 0 if it stayed unchanged.
+static int apply_invalid(const cfg_Field* f, uint8_t* dest, const uint8_t* extracted) {
+  switch (f->invalid_strategy) {
+    case CFG_INVALID_SKIP:
+    case CFG_INVALID_LAST_GOOD:
+      (void)extracted;
+      return 0; // shadow stays at last good value
+    case CFG_INVALID_CLAMP: {
+      // Pick whichever bound the extracted value overshoots.
+      float ext_disp = raw_to_display(extracted, f->type, f->scale, f->offset);
+      float clamped = ext_disp;
+      if (f->has_valid_min && clamped < f->valid_min) clamped = f->valid_min;
+      if (f->has_valid_max && clamped > f->valid_max) clamped = f->valid_max;
+      write_value(dest, f->type, clamped, f->scale, f->offset);
+      return 1;
+    }
+    default:
+      return 0;
+  }
+}
+
 int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame* frame) {
   int updated = 0;
   size_t offset = 0;
 
   for (int i = 0; i < cfg->num_fields; i++) {
-    size_t field_size = mlg_field_data_size((mlg_FieldType)cfg->fields[i].type);
+    const cfg_Field* f = &cfg->fields[i];
+    size_t field_size = mlg_field_data_size((mlg_FieldType)f->type);
 
-    if (cfg->fields[i].can_id == frame->id) {
-      if (extract_value(frame->data, frame->dlc, cfg->fields[i].start_byte,
-                        cfg->fields[i].start_bit, cfg->fields[i].bit_length,
-                        cfg->fields[i].is_big_endian,
-                        fv->values + offset) == 0) {
-        // Apply LUT if present
-        if (cfg->fields[i].lut_count >= 2) {
-          // Read extracted big-endian value as uint16
-          uint16_t raw_input = (fv->values[offset] << 8) | fv->values[offset + 1];
-          float display_val = lut_interpolate(cfg->fields[i].lut, cfg->fields[i].lut_count, raw_input);
-          write_value(fv->values + offset, cfg->fields[i].type,
-                      display_val, cfg->fields[i].scale, cfg->fields[i].offset);
+    if (f->can_id == frame->id) {
+      // Extract into a scratch buffer first — lets us reject without
+      // already having clobbered the shadow's last-good value.
+      uint8_t extracted[8] = {0};
+      if (extract_value(frame->data, frame->dlc, f->start_byte,
+                        f->start_bit, f->bit_length,
+                        f->is_big_endian,
+                        extracted) == 0) {
+        int rejected = preset_rejects(f, extracted);
+
+        // Apply LUT to produce the display-unit value, then pack back into
+        // the scratch buffer in MLG storage form so plausibility and the
+        // shadow copy share one code path.
+        if (!rejected && f->lut_count >= 2) {
+          uint16_t raw_input = ((uint16_t)extracted[0] << 8) | extracted[1];
+          float display_val = lut_interpolate(f->lut, f->lut_count, raw_input);
+          write_value(extracted, f->type, display_val, f->scale, f->offset);
         }
-        updated++;
+
+        if (!rejected && (f->has_valid_min || f->has_valid_max)) {
+          float disp = raw_to_display(extracted, f->type, f->scale, f->offset);
+          if (f->has_valid_min && disp < f->valid_min) rejected = 1;
+          if (f->has_valid_max && disp > f->valid_max) rejected = 1;
+        }
+
+        if (rejected) {
+          if (apply_invalid(f, fv->values + offset, extracted)) updated++;
+        } else {
+          memcpy(fv->values + offset, extracted, field_size);
+          updated++;
+        }
       }
     }
 

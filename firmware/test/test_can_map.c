@@ -313,6 +313,149 @@ void test_reset_updated(void) {
   TEST_ASSERT_EQUAL(0, fv.updated);
 }
 
+// --- Plausibility / invalid strategies ---
+
+// RPM-like U16 BE with scale 12.5 on ID 0x667, bytes 1..2.
+static void setup_rpm_u16(void) {
+  cfg.log_interval_ms = 10;
+  cfg.num_fields = 1;
+  cfg.fields[0].can_id = 0x667;
+  cfg.fields[0].start_byte = 1;
+  cfg.fields[0].bit_length = 16;
+  cfg.fields[0].is_big_endian = 1;
+  cfg.fields[0].type = 2; // U16
+  cfg.fields[0].scale = 12.5f;
+  cfg.fields[0].offset = 0.0f;
+  strcpy(cfg.fields[0].name, "RPM");
+}
+
+void test_valid_in_range_passes_through(void) {
+  setup_rpm_u16();
+  cfg.fields[0].has_valid_max = 1;
+  cfg.fields[0].valid_max = 10000.0f;
+  can_map_init(&fv, &cfg);
+
+  can_Frame frame = { .id = 0x667, .data = {0, 0x01, 0x40}, .dlc = 3 }; // raw 320 × 12.5 = 4000
+  TEST_ASSERT_EQUAL(1, can_map_process(&fv, &cfg, &frame));
+  TEST_ASSERT_EQUAL_HEX8(0x01, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x40, fv.values[1]);
+}
+
+void test_over_valid_max_last_good(void) {
+  setup_rpm_u16();
+  cfg.fields[0].has_valid_max = 1;
+  cfg.fields[0].valid_max = 10000.0f;
+  cfg.fields[0].invalid_strategy = CFG_INVALID_LAST_GOOD;
+  can_map_init(&fv, &cfg);
+
+  // Seed a good frame first.
+  can_Frame good = { .id = 0x667, .data = {0, 0x01, 0x40}, .dlc = 3 };
+  can_map_process(&fv, &cfg, &good);
+
+  // Then a spike: raw 0xE9C5 × 12.5 ≈ 745663 rpm.
+  can_Frame spike = { .id = 0x667, .data = {0, 0xE9, 0xC5}, .dlc = 3 };
+  can_map_process(&fv, &cfg, &spike);
+
+  // Shadow keeps the last good value, not the spike.
+  TEST_ASSERT_EQUAL_HEX8(0x01, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x40, fv.values[1]);
+}
+
+void test_over_valid_max_clamp(void) {
+  setup_rpm_u16();
+  cfg.fields[0].has_valid_max = 1;
+  cfg.fields[0].valid_max = 10000.0f;
+  cfg.fields[0].invalid_strategy = CFG_INVALID_CLAMP;
+  can_map_init(&fv, &cfg);
+
+  can_Frame spike = { .id = 0x667, .data = {0, 0xE9, 0xC5}, .dlc = 3 };
+  can_map_process(&fv, &cfg, &spike);
+
+  // 10000 / 12.5 = 800 = 0x0320
+  TEST_ASSERT_EQUAL_HEX8(0x03, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x20, fv.values[1]);
+}
+
+void test_below_valid_min_last_good(void) {
+  setup_single_u08_field(0x100, 0);
+  cfg.fields[0].has_valid_min = 1;
+  cfg.fields[0].valid_min = 50.0f;
+  cfg.fields[0].invalid_strategy = CFG_INVALID_LAST_GOOD;
+  can_map_init(&fv, &cfg);
+
+  can_Frame good = { .id = 0x100, .data = {100}, .dlc = 1 };
+  can_map_process(&fv, &cfg, &good);
+  TEST_ASSERT_EQUAL(100, fv.values[0]);
+
+  can_Frame bad = { .id = 0x100, .data = {10}, .dlc = 1 };
+  can_map_process(&fv, &cfg, &bad);
+  TEST_ASSERT_EQUAL(100, fv.values[0]); // unchanged
+}
+
+void test_skip_strategy_does_not_update(void) {
+  setup_single_u08_field(0x100, 0);
+  cfg.fields[0].has_valid_max = 1;
+  cfg.fields[0].valid_max = 100.0f;
+  cfg.fields[0].invalid_strategy = CFG_INVALID_SKIP;
+  can_map_init(&fv, &cfg);
+
+  can_Frame good = { .id = 0x100, .data = {50}, .dlc = 1 };
+  can_map_process(&fv, &cfg, &good);
+  can_Frame spike = { .id = 0x100, .data = {200}, .dlc = 1 };
+  int updated = can_map_process(&fv, &cfg, &spike);
+  TEST_ASSERT_EQUAL(0, updated);
+  TEST_ASSERT_EQUAL(50, fv.values[0]);
+}
+
+// --- AEM UEGO preset: raw 0xFFFF == sensor fault / free air / warmup ---
+
+void test_preset_aem_uego_rejects_ffff(void) {
+  cfg.log_interval_ms = 10;
+  cfg.num_fields = 1;
+  cfg.fields[0].can_id = 0x180;
+  cfg.fields[0].start_byte = 0;
+  cfg.fields[0].bit_length = 16;
+  cfg.fields[0].is_big_endian = 1;
+  cfg.fields[0].type = 2; // U16
+  cfg.fields[0].scale = 0.0001f;
+  cfg.fields[0].preset = CFG_PRESET_AEM_UEGO;
+  cfg.fields[0].invalid_strategy = CFG_INVALID_LAST_GOOD;
+  strcpy(cfg.fields[0].name, "Lambda");
+  can_map_init(&fv, &cfg);
+
+  // Good frame — λ 1.0 (raw 10000)
+  can_Frame good = { .id = 0x180, .data = {0x27, 0x10}, .dlc = 8 };
+  can_map_process(&fv, &cfg, &good);
+  TEST_ASSERT_EQUAL_HEX8(0x27, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x10, fv.values[1]);
+
+  // Sensor fault — 0xFFFF
+  can_Frame fault = { .id = 0x180, .data = {0xFF, 0xFF}, .dlc = 8 };
+  can_map_process(&fv, &cfg, &fault);
+  TEST_ASSERT_EQUAL_HEX8(0x27, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0x10, fv.values[1]);
+}
+
+void test_preset_aem_uego_accepts_valid(void) {
+  cfg.log_interval_ms = 10;
+  cfg.num_fields = 1;
+  cfg.fields[0].can_id = 0x180;
+  cfg.fields[0].start_byte = 0;
+  cfg.fields[0].bit_length = 16;
+  cfg.fields[0].is_big_endian = 1;
+  cfg.fields[0].type = 2;
+  cfg.fields[0].scale = 0.0001f;
+  cfg.fields[0].preset = CFG_PRESET_AEM_UEGO;
+  strcpy(cfg.fields[0].name, "Lambda");
+  can_map_init(&fv, &cfg);
+
+  // Any non-0xFFFF value passes the preset check.
+  can_Frame f = { .id = 0x180, .data = {0xFF, 0xFE}, .dlc = 8 };
+  TEST_ASSERT_EQUAL(1, can_map_process(&fv, &cfg, &f));
+  TEST_ASSERT_EQUAL_HEX8(0xFF, fv.values[0]);
+  TEST_ASSERT_EQUAL_HEX8(0xFE, fv.values[1]);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_init_single_field);
@@ -332,5 +475,12 @@ int main(void) {
   RUN_TEST(test_lut_ntc_negative_output);
   RUN_TEST(test_lut_no_lut_passthrough);
   RUN_TEST(test_reset_updated);
+  RUN_TEST(test_valid_in_range_passes_through);
+  RUN_TEST(test_over_valid_max_last_good);
+  RUN_TEST(test_over_valid_max_clamp);
+  RUN_TEST(test_below_valid_min_last_good);
+  RUN_TEST(test_skip_strategy_does_not_update);
+  RUN_TEST(test_preset_aem_uego_rejects_ffff);
+  RUN_TEST(test_preset_aem_uego_accepts_valid);
   return UNITY_END();
 }
