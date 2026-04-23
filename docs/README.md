@@ -15,7 +15,6 @@
 - [HARDWARE.md](HARDWARE.md) — плата STM32_F4VE V2.0, пины, периферия, SWD, hat, E2E-стенд
 - [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md) — breadboard-прототип hat: DC-DC, supercap, VIN_SENSE делитель
 - [PPK_MEASUREMENTS.md](PPK_MEASUREMENTS.md) — PPK2 измерения тока для расчёта supercap (graceful shutdown)
-- [SCHEMATIC_CONVENTIONS.md](SCHEMATIC_CONVENTIONS.md) — правила оформления схем в KiCad
 
 ## Postmortem — завершённые исследования
 

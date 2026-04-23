@@ -2,7 +2,7 @@
 
 Universal CAN bus data logger. STM32F407VET6, FreeRTOS, SD/FatFS, MLVLG v2 logs.
 
-Docs: `docs/REQUIREMENTS.md` · `docs/ARCHITECTURE.md` · `docs/HARDWARE.md` · `docs/CONFIG_GUIDE.md` · `docs/DEBUG.md` · `docs/SCHEMATIC_CONVENTIONS.md`
+Docs: `docs/REQUIREMENTS.md` · `docs/ARCHITECTURE.md` · `docs/HARDWARE.md` · `docs/CONFIG_GUIDE.md` · `docs/DEBUG.md`
 
 ## Layout
 
