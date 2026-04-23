@@ -61,10 +61,16 @@
 
 **Цель:** Надёжный логгер для повседневного использования.
 
-Задачи:
-- [x] Graceful shutdown при пропадании питания — VIN_SENSE ADC + armed debounce + lw_stop + auto-resume через NVIC_SystemReset, провалидировано на макете с суперкапом
+#### Hardware
+
 - [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit (прототип на breadboard, см. [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
 - [ ] RC-debounce кнопок маркера/shutdown на hat (100 нФ + опц. 1–10 кОм у connector'а PE4/PE3) — убирает программный 300мс lockout, снимает проблему дребезга контактов при отпускании. Отладочные K0/K1 на основной плате не монтировать в production
+- [ ] Активная пищалка на hat — звуковой status-check без визуального контакта с платой: mount OK, ошибки конфига/SD, fault на boot (из BKP). Дополняет LED-индикацию, слышно из-под торпедо
+- [ ] GPS модуль — геопозиция + точное реальное время
+
+#### Software
+
+- [x] Graceful shutdown при пропадании питания — VIN_SENSE ADC + armed debounce + lw_stop + auto-resume через NVIC_SystemReset, провалидировано на макете с суперкапом
 - [x] Поддержка extended CAN ID (29-bit) в конфиге и can_map — явный ключ `is_extended = 1` в `[field]`, hardware filter корректно настраивается на IDE=1 (используется для AEM 30-0300 `0x180`)
 - [x] Sub-byte (1-7 бит) поля в конфиге — ключи `start_bit` + `bit_length` для индивидуальных битовых флагов (статус ECU, реле, соленоиды)
 - [x] Plausibility-фильтр поля в конфиге — ключи `valid_min` / `valid_max` (в display-единицах, после scale/offset/LUT) + `invalid_strategy = last_good | clamp | skip`. Пресеты под sensor-fault энкодинги (`preset = aem_uego` → rejects raw 0xFFFF на AFR/Lambda). Закрывает RPM-спайки от UART-сдвигов cansult и AFR=96 на decel fuel-cut
@@ -77,7 +83,6 @@
 - [ ] Логирование статистики (принято/потеряно/записано фреймов)
 - [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
 - [ ] Поддержка двух CAN-шин (CAN1 + CAN2) — два независимных канала, удвоение пропускной способности
-- [ ] GPS модуль — геопозиция + точное реальное время
 - [ ] Рассмотреть миграцию debug-интерфейса с USB CDC на CAN (status/config/get через CAN-фреймы, убрать зависимость от USB)
 - [ ] Полнота реализации MLG — изучить спеку, проверить все ли возможности используются
 - [x] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах, VBAT батарейка на плате
