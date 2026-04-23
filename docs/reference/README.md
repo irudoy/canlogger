@@ -2,20 +2,9 @@
 
 ## MLVLG Format Specification (official)
 
-- [MLG_Binary_LogFormat_1.0.pdf](MLG_Binary_LogFormat_1.0.pdf) — MLVLG v1 spec (Logger Field = 55 bytes, Info Data Start = 2 bytes)
 - [MLG_Binary_LogFormat_2.0.pdf](MLG_Binary_LogFormat_2.0.pdf) — MLVLG v2 spec (Logger Field = 89 bytes with Category, Info Data Start = 4 bytes)
 
 Author: Philip Tobin (EFI Analytics / TunerStudio / MegaLogViewer)
-
-### Key differences v1 vs v2
-
-| Field            | v1           | v2           |
-|------------------|--------------|--------------|
-| Format Version   | 0x0001       | 0x0002       |
-| Info Data Start  | 2 bytes (offset 12) | 4 bytes (offset 12) |
-| Header size      | 22 bytes     | 24 bytes     |
-| Logger Field     | 55 bytes (no Category) | 89 bytes (+ 34-byte Category) |
-| Logger Field[]   | starts at offset 22 | starts at offset 24 |
 
 ### Display value formula
 
@@ -34,12 +23,7 @@ rawValue = DisplayValue / scale - transform
 
 ## rusefi Reference Implementation
 
-Source files from [rusefi/rusefi](https://github.com/rusefi/rusefi/tree/master/firmware/console/binary_mlg_log):
-
-- [rusefi_mlg_types.h](rusefi_mlg_types.h) — Header/field constants, type enums, size helpers
-- [rusefi_mlg_field.h](rusefi_mlg_field.h) — `Field` class: writeHeader() and writeData() with endian swap
-- [rusefi_binary_mlg_logging.cpp](rusefi_binary_mlg_logging.cpp) — writeFileHeader() and writeSdBlock() full implementation
-- [rusefi_binary_mlg_logging.h](rusefi_binary_mlg_logging.h) — Public API
+Canonical MLG writer in [rusefi/rusefi](https://github.com/rusefi/rusefi/tree/master/firmware/console/binary_mlg_log) — `rusefi_mlg_types.h`, `rusefi_mlg_field.h`, `rusefi_binary_mlg_logging.{h,cpp}`.
 
 ## Hardware
 
