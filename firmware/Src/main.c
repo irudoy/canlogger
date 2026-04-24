@@ -721,11 +721,16 @@ void StartDefaultTask(void *argument)
       demo_pack_can_frames(&config, &can_rx_buf, HAL_GetTick());
     }
 
+    // Drain GPS DMA outside shadow_mutex: gps_drv_poll() touches only
+    // task_producer-local state, and when `gps_raw` is ON it also does
+    // per-byte putchar() to CDC — holding shadow_mutex through that stalls
+    // task_sd's field_values snapshot for the duration of the USB TX.
+    gps_drv_poll();
+
     // Drain CAN ring buffer → update shadow under mutex
     {
       can_Frame frame;
       osMutexAcquire(shadow_mutex, osWaitForever);
-      gps_drv_poll();
       if (init_ok && config.gps_enabled) {
         can_map_update_gps(&field_values, &config, gps_drv_state());
       }

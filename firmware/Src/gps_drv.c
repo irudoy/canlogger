@@ -24,6 +24,10 @@ void gps_drv_init(void) {
   gps_lb_init(&lb);
   gps_state_init(&state);
   cnt_ok = cnt_bad = cnt_ignored = 0;
+  // MX_USART3_UART_Init() enables RE long before StartDefaultTask runs.
+  // Any NMEA byte received in that window latches ORE in SR; HAL_UART_Receive_DMA
+  // does not clear it. Drain SR+DR to drop the latched flag before starting DMA.
+  __HAL_UART_CLEAR_OREFLAG(&huart3);
   // Circular mode was set in CubeMX (.ioc): DMA wraps automatically,
   // HAL_UART_Receive_DMA never "finishes", callbacks fire periodically
   // and are ignored — we poll NDTR in gps_drv_poll() instead.
