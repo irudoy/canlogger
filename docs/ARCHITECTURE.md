@@ -127,7 +127,8 @@ int can_map_init(can_FieldValues* fv, const cfg_Config* cfg);
 int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame* frame);
 
 // Пишет в shadow buffer значения всех полей с gps_source != NONE из gps_State.
-// Вызывается под shadow_mutex после gps_drv_poll().
+// Вызывается под shadow_mutex; сам gps_drv_poll() при этом запускается снаружи
+// мьютекса, чтобы raw-tap putchar не стопил task_sd.
 int can_map_update_gps(can_FieldValues* fv, const cfg_Config* cfg, const gps_State* gs);
 
 // Сбрасывает флаг updated.
@@ -218,7 +219,7 @@ int  ring_buf_is_full(const ring_Buffer* rb);
 
 ### gps_drv — USART3 DMA → NMEA парсер
 
-Обёртка над `HAL_UART_Receive_DMA` в CIRCULAR-режиме. Буфер `rx_dma_buf[128]` живёт в основном SRAM (DMA1 на F4 не умеет в CCM). Периодический poll из `task_producer` читает `NDTR` ⇒ вычисляет `write_pos`, опустошает новые байты через `gps_lb_feed_byte` в `gps_nmea`. Выход из `gps_drv_state()` — срез текущего `gps_State`, копируется в shadow под `shadow_mutex`.
+Обёртка над `HAL_UART_Receive_DMA` в CIRCULAR-режиме. Буфер `rx_dma_buf[128]` живёт в основном SRAM (DMA1 на F4 не умеет в CCM). `gps_drv_init()` перед стартом DMA сбрасывает ORE (`__HAL_UART_CLEAR_OREFLAG`) — `MX_USART3_UART_Init` включает RE раньше старта DMA, и первые байты latch'ат error-флаг. Периодический poll из `task_producer` (снаружи `shadow_mutex`) читает `NDTR` ⇒ вычисляет `write_pos`, опустошает новые байты через `gps_lb_feed_byte` в `gps_nmea`. Выход из `gps_drv_state()` — срез текущего `gps_State`, копируется в shadow через `can_map_update_gps()` уже под `shadow_mutex`.
 
 ```c
 // Src/gps_drv.c
@@ -438,16 +439,19 @@ StartDefaultTask (task_producer):
 
 ### Задачи (runtime)
 
-**task_producer** (osPriorityNormal) — CAN drain + debug CLI:
+**task_producer** (osPriorityNormal) — CAN drain + GPS drain + debug CLI:
 ```
 for(;;) {
-    demo_pack_can_frames()          // если demo mode
+    demo_pack_can_frames()              // если demo mode
+    gps_drv_poll()                      // drain DMA, parse NMEA, raw-tap putchar
     mutex {
+        can_map_update_gps()            // если [gps] enable = 1
         while (ring_buf_pop(&frame))
             can_map_process(→ field_values shadow)
-        demo_generate()             // legacy direct path
+        demo_generate()                 // legacy direct path
     }
-    debug_out_tick / debug_cmd_poll // USB CDC CLI
+    // one-shot RTC sync на первый fix с date+time (has_fix && has_date && has_time)
+    debug_out_tick / debug_cmd_poll     // USB CDC CLI
     lw_update_leds()
     osDelay(1)
 }
