@@ -63,7 +63,7 @@ Configurable CAN bitrate, hardware ID filters, Unix timestamp in MLG header.
 
 #### Hardware
 
-- [ ] Hat PCB: CAN transceiver + DC-DC + shutdown circuit (breadboard prototype, see [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
+- [ ] Hat PCB: CAN transceiver + DC-DC + shutdown circuit. Supercap sizing validated on PPK2 — 94 mA avg, ~150 ms shutdown budget, 0.47 F / 5.5 V minimum, see [PPK_MEASUREMENTS.md](PPK_MEASUREMENTS.md); breadboard validated in [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md). DC-DC selection still open (A5973 / LM2596 / off-the-shelf module)
 - [ ] RC debounce for the marker/shutdown buttons on the hat (100 nF + optional 1–10 kΩ near the PE4/PE3 connector) — removes the 300 ms software lockout and kills contact-bounce on release. Do not populate the debug K0/K1 buttons on the main board in production
 - [ ] Active buzzer on the hat — audible status check without looking at the board: mount OK, config/SD errors, fault-on-boot (from BKP). Complements the LEDs and is audible from under the dashboard
 - [~] GPS module — geolocation + accurate wall-clock time. Firmware: NMEA parser GGA/RMC + USART3 DMA circular RX; config `[gps] enable = 1` auto-injects `gps_lat/lon/alt/speed_kmh/fix`; optional fields via `source = gps:<tag>`; one-shot RTC sync on the first fix that carries a date; CDC `gps`/`gps_raw`. Hardware: needs an active antenna with a proper RF path (indoors through low-E glass the NEO-6M sees at most three satellites and never locks — ordered a Triada 2178 + U.FL→SMA pigtail)
@@ -104,7 +104,7 @@ Configurable CAN bitrate, hardware ID filters, Unix timestamp in MLG header.
   - [x] Recovery counter in status (rec=N lastrec=FR_X@site)
   - [x] Drop the duplicate mlg_fields[256] (23 KB RAM) — build the MLG header on the fly from cfg_Config
   - [x] recover_file() used to block the main loop for 30 s — now only task_sd blocks (osDelay), CAN drain keeps going
-  - [x] Stress test at max pressure: 128 fields / 32 CAN IDs / 1 ms — solved by migrating to FreeRTOS (GC stalls block only task_sd)
+  - [x] Stress test at max pressure: 128 fields / 32 CAN IDs / 1 ms — solved by migrating to FreeRTOS (GC stalls block only task_sd). 2 h 27 min run, 65 M frames, err=0/0, rb=0, sdw max_lat 950 ms (task_sd only), see [postmortem/STRESS_TEST_128U16_PLAN.md](postmortem/STRESS_TEST_128U16_PLAN.md)
 - [x] Investigate CMD_RSP_TIMEOUT on DMA writes — see [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)
   - [x] Analysis: most likely CMD12 stop against a busy card, see docs/postmortem/CMD_RSP_TIMEOUT.md
   - [x] SDIO error counters via HAL_SD_ErrorCallback + hal.ErrorCode in CDC status

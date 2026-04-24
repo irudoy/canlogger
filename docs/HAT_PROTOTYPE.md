@@ -93,13 +93,13 @@ Expected behaviour: V_dc drops quickly to 0 when 12 V is lost (the supercap does
 4. **Shutdown**: task_sd performs flush → f_sync → f_close; LED D3 ON.
 5. **Margin**: 2.5 F × 0.2 V / 0.110 A ≈ **4.5 s** (from 4.6 V to the 4.4 V minimum).
 
-## TODO
+## Status
 
-- [ ] Configure PA0 as an ADC in CubeMX
-- [ ] Assemble the prototype
-- [ ] Verify supercap charging (time, voltage)
-- [ ] Verify shutdown: pull 12 V, confirm the MLG closes cleanly
-- [ ] Pick the VIN_SENSE threshold for firmware
+- [x] PA0 configured as ADC1_IN0 in CubeMX
+- [x] Prototype assembled on breadboard
+- [x] Supercap charging verified (KAMCAP 2.5 F → ~4.6 V through 1N5819)
+- [x] Shutdown verified: pulling 12 V → `lw_shutdown=1` → task_sd flushes → f_close → D3 ON, MLG opens cleanly in MegaLogViewer
+- [x] VIN_SENSE threshold dialled in firmware (see `firmware/Src/` VIN shutdown path)
 
 ## Related documents
 
