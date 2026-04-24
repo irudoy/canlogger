@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -g -I../Lib -Iunity
+CFLAGS = -Wall -Wextra -std=c11 -g -I../Lib -Iunity -DUNITY_INCLUDE_DOUBLE
 
 UNITY_SRC = unity/unity.c
 LIB_SRCS = $(wildcard ../Lib/*.c)

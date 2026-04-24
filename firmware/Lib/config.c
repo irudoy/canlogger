@@ -6,8 +6,30 @@
 typedef enum {
   SEC_NONE,
   SEC_LOGGER,
-  SEC_FIELD
+  SEC_FIELD,
+  SEC_GPS
 } Section;
+
+static uint8_t parse_gps_source(const char* val) {
+  if (strncmp(val, "gps:", 4) != 0) return CFG_GPS_SRC_NONE;
+  const char* tag = val + 4;
+  if (strcmp(tag, "lat") == 0)         return CFG_GPS_SRC_LAT;
+  if (strcmp(tag, "lon") == 0)         return CFG_GPS_SRC_LON;
+  if (strcmp(tag, "alt") == 0)         return CFG_GPS_SRC_ALT;
+  if (strcmp(tag, "speed_ms") == 0)    return CFG_GPS_SRC_SPEED_MS;
+  if (strcmp(tag, "speed_kmh") == 0)   return CFG_GPS_SRC_SPEED_KMH;
+  if (strcmp(tag, "course") == 0)      return CFG_GPS_SRC_COURSE;
+  if (strcmp(tag, "sats") == 0)        return CFG_GPS_SRC_SATS;
+  if (strcmp(tag, "hdop") == 0)        return CFG_GPS_SRC_HDOP;
+  if (strcmp(tag, "fix") == 0)         return CFG_GPS_SRC_FIX;
+  if (strcmp(tag, "year") == 0)        return CFG_GPS_SRC_YEAR;
+  if (strcmp(tag, "month") == 0)       return CFG_GPS_SRC_MONTH;
+  if (strcmp(tag, "day") == 0)         return CFG_GPS_SRC_DAY;
+  if (strcmp(tag, "hour") == 0)        return CFG_GPS_SRC_HOUR;
+  if (strcmp(tag, "minute") == 0)      return CFG_GPS_SRC_MINUTE;
+  if (strcmp(tag, "second") == 0)      return CFG_GPS_SRC_SECOND;
+  return 0xFF;  // sentinel: unknown tag
+}
 
 static void trim_right(char* s) {
   int len = strlen(s);
@@ -146,6 +168,8 @@ static int process_line(char* line, ParseState* st) {
     if (strcmp(sec_name, "logger") == 0) {
       st->section = SEC_LOGGER;
       st->logger_found = 1;
+    } else if (strcmp(sec_name, "gps") == 0) {
+      st->section = SEC_GPS;
     } else if (strcmp(sec_name, "field") == 0) {
       st->section = SEC_FIELD;
       st->field_idx++;
@@ -185,6 +209,10 @@ static int process_line(char* line, ParseState* st) {
       out->log_interval_ms = parse_uint32(val_buf);
     } else if (strcmp(raw_key, "can_bitrate") == 0) {
       out->can_bitrate = parse_uint32(val_buf);
+    }
+  } else if (st->section == SEC_GPS) {
+    if (strcmp(raw_key, "enable") == 0) {
+      out->gps_enabled = (uint8_t)parse_uint32(val_buf);
     }
   } else if (st->section == SEC_FIELD && fi >= 0) {
     cfg_Field* f = &out->fields[fi];
@@ -235,6 +263,10 @@ static int process_line(char* line, ParseState* st) {
       if (strcmp(val_buf, "none") == 0)         f->preset = CFG_PRESET_NONE;
       else if (strcmp(val_buf, "aem_uego") == 0) f->preset = CFG_PRESET_AEM_UEGO;
       else return CFG_ERR_VALUE;
+    } else if (strcmp(raw_key, "source") == 0) {
+      uint8_t src = parse_gps_source(val_buf);
+      if (src == 0xFF) return CFG_ERR_VALUE;
+      f->gps_source = src;
     } else if (strcmp(raw_key, "demo_func") == 0) {
       out->demo_gen.params[fi].func = demo_parse_func(val_buf);
     } else if (strcmp(raw_key, "demo_min") == 0) {
@@ -251,11 +283,46 @@ static int process_line(char* line, ParseState* st) {
   return CFG_OK;
 }
 
+// Append one GPS field to cfg->fields if not already declared by the user.
+// Returns CFG_OK, or CFG_ERR_OVERFLOW if field table is full.
+static int maybe_inject_gps_field(cfg_Config* out, uint8_t src, uint8_t type,
+                                   const char* name, const char* units,
+                                   int8_t digits) {
+  for (int i = 0; i < out->num_fields; i++) {
+    if (out->fields[i].gps_source == src) return CFG_OK;  // user already declared this
+  }
+  if (out->num_fields >= CFG_MAX_FIELDS) return CFG_ERR_OVERFLOW;
+  cfg_Field* f = &out->fields[out->num_fields++];
+  memset(f, 0, sizeof(*f));
+  f->type = type;
+  f->scale = 1.0f;
+  f->offset = 0.0f;
+  f->digits = digits;
+  f->gps_source = src;
+  size_t tsz = mlg_field_data_size((mlg_FieldType)type);
+  f->bit_length = (uint8_t)(tsz * 8);
+  copy_str(f->name, name, CFG_NAME_SIZE);
+  copy_str(f->units, units, CFG_UNITS_SIZE);
+  copy_str(f->category, "GPS", CFG_CAT_SIZE);
+  return CFG_OK;
+}
+
 // Post-parse: validate, collect CAN IDs, init demo
 static int cfg_finalize(cfg_Config* out, int logger_found) {
   if (!logger_found) return CFG_ERR_MISSING;
 
   if (out->can_bitrate == 0) out->can_bitrate = 500000;
+
+  // Auto-inject minimal GPS field set when [gps] enable = 1. Skips any slot
+  // the user already declared via `source = gps:*` so there are no duplicates.
+  if (out->gps_enabled) {
+    int rc;
+    rc = maybe_inject_gps_field(out, CFG_GPS_SRC_LAT,       MLG_F32, "gps_lat",       "deg",  6); if (rc) return rc;
+    rc = maybe_inject_gps_field(out, CFG_GPS_SRC_LON,       MLG_F32, "gps_lon",       "deg",  6); if (rc) return rc;
+    rc = maybe_inject_gps_field(out, CFG_GPS_SRC_ALT,       MLG_F32, "gps_alt",       "m",    1); if (rc) return rc;
+    rc = maybe_inject_gps_field(out, CFG_GPS_SRC_SPEED_KMH, MLG_F32, "gps_speed_kmh", "km/h", 1); if (rc) return rc;
+    rc = maybe_inject_gps_field(out, CFG_GPS_SRC_FIX,       MLG_U08, "gps_fix",       "",     0); if (rc) return rc;
+  }
 
   // Collect unique CAN IDs + propagate is_extended flag.
   // Reject configs where the same can_id appears with conflicting flags.
@@ -284,6 +351,15 @@ static int cfg_finalize(cfg_Config* out, int logger_found) {
       if (f->bit_length == 0) {
         size_t sz = mlg_field_data_size((mlg_FieldType)f->type);
         f->bit_length = sz * 8;
+      }
+      continue;
+    }
+    // GPS-sourced fields don't live in CAN frames — skip the 8-byte
+    // payload/start_byte/is_big_endian geometry checks.
+    if (f->gps_source != CFG_GPS_SRC_NONE) {
+      if (f->bit_length == 0) {
+        size_t sz = mlg_field_data_size((mlg_FieldType)f->type);
+        f->bit_length = (uint8_t)(sz * 8);
       }
       continue;
     }

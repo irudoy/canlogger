@@ -259,6 +259,68 @@ invalid_strategy = last_good
 
 Order of evaluation: extract → preset check → LUT → valid_min/max check → write to shadow (or apply strategy).
 
+## GPS
+
+The logger supports an optional u-blox NEO-6M (or compatible NMEA-0183) receiver wired to USART3 at 9600 8N1. When enabled, GPS fields appear in the MLG file alongside CAN fields.
+
+### Enable block
+
+Adding `[gps] enable = 1` turns the feature on and auto-injects a minimal set of GPS fields at the end of the `[field]` list:
+
+```ini
+[gps]
+enable = 1
+```
+
+| Auto-injected field | Type | Units | Source |
+|---------------------|------|-------|--------|
+| `gps_lat`           | F32  | deg   | $xxGGA / $xxRMC — decimal degrees, south negative |
+| `gps_lon`           | F32  | deg   | $xxGGA / $xxRMC — decimal degrees, west negative  |
+| `gps_alt`           | F32  | m     | $xxGGA altitude MSL |
+| `gps_speed_kmh`     | F32  | km/h  | $xxRMC speed (knots converted) |
+| `gps_fix`           | U08  | --    | 0 = no fix, 1 = GPS, 2 = DGPS, 6 = estimated |
+
+Each field's value stays at its previous reading until the corresponding NMEA sentence arrives with a valid fix — so `gps_lat` reads 0 on boot and flips to the receiver's decimal-degree output once the module acquires satellites. `gps_fix = 0` is the reliable signal that the other fields aren't trustworthy yet.
+
+### Extra GPS fields via `source = gps:*`
+
+To log additional GPS data beyond the five defaults, add `[field]` sections with `source = gps:<tag>` in place of `can_id`. The parser skips the CAN-frame geometry checks for these fields.
+
+```ini
+[field]
+name = gps_sats
+units = cnt
+type = U08
+source = gps:sats
+
+[field]
+name = gps_hdop
+units = --
+type = F32
+digits = 1
+source = gps:hdop
+
+[field]
+name = gps_course
+units = deg
+type = F32
+digits = 1
+source = gps:course
+```
+
+Supported tags: `lat`, `lon`, `alt`, `speed_ms`, `speed_kmh`, `course`, `sats`, `hdop`, `fix`, `year`, `month`, `day`, `hour`, `minute`, `second`.
+
+Declaring `source = gps:lat` (or any of the five defaults) suppresses the auto-inject for that slot, so your customized field replaces the default — use this to change the type, digits, name, or apply a non-unit `scale`.
+
+### One-shot RTC sync
+
+On the first NMEA sentence with both a valid fix and a full date+time, the firmware syncs the RTC once per boot. CDC `settime` still works as a manual override; the auto-sync does not fight it after it has fired once.
+
+### CDC commands
+
+- `gps` — one-shot snapshot of the parsed state: fix quality, satellite count, lat/lon, altitude, speed, course, HDOP, UTC timestamp, and parser counters (ok / bad-checksum / ignored / line-buffer overflow).
+- `gps_raw` — toggle: when ON, every byte received on USART3 is echoed to the CDC stdout. Useful for diagnosing antenna / cabling issues before you rely on parser output.
+
 ## Choosing the Right Data Type
 
 | CAN data | Type | Bit length | Notes |

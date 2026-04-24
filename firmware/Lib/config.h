@@ -22,6 +22,27 @@
 #define CFG_PRESET_NONE       0
 #define CFG_PRESET_AEM_UEGO   1  // reject raw 0xFFFF on 16-bit Lambda/AFR
 
+// gps_source: fields whose values come from the GPS driver state, not CAN.
+// A non-zero value tags the field as GPS-sourced; can_map_update_gps writes
+// the appropriate gps_State member into the shadow buffer slot. Such fields
+// ignore can_id / start_byte / bit_length / is_big_endian.
+#define CFG_GPS_SRC_NONE       0
+#define CFG_GPS_SRC_LAT        1   // F32 degrees
+#define CFG_GPS_SRC_LON        2   // F32 degrees
+#define CFG_GPS_SRC_ALT        3   // F32 meters
+#define CFG_GPS_SRC_SPEED_MS   4   // F32 m/s
+#define CFG_GPS_SRC_SPEED_KMH  5   // F32 km/h
+#define CFG_GPS_SRC_COURSE     6   // F32 degrees true
+#define CFG_GPS_SRC_SATS       7   // U08 count
+#define CFG_GPS_SRC_HDOP       8   // F32 unitless
+#define CFG_GPS_SRC_FIX        9   // U08 GGA quality (0..6)
+#define CFG_GPS_SRC_YEAR       10  // U16
+#define CFG_GPS_SRC_MONTH      11  // U08
+#define CFG_GPS_SRC_DAY        12  // U08
+#define CFG_GPS_SRC_HOUR       13  // U08
+#define CFG_GPS_SRC_MINUTE     14  // U08
+#define CFG_GPS_SRC_SECOND     15  // U08
+
 typedef struct {
   uint16_t input;
   int16_t  output;
@@ -53,6 +74,7 @@ typedef struct {
   uint8_t  has_valid_max;
   uint8_t  invalid_strategy; // CFG_INVALID_*
   uint8_t  preset;           // CFG_PRESET_*
+  uint8_t  gps_source;       // CFG_GPS_SRC_* (0 = not from GPS)
 } cfg_Field;
 
 typedef struct {
@@ -67,6 +89,10 @@ typedef struct {
   // Demo mode (auto-detected: set if any field has demo_func)
   uint8_t   demo;
   demo_Gen  demo_gen;
+  // GPS: enabled via `[gps] enable = 1`. When set, cfg_finalize appends the
+  // minimal set of fields {gps_lat, gps_lon, gps_alt, gps_speed_kmh, gps_fix}
+  // that aren't already declared by the user via `source = gps:*`.
+  uint8_t   gps_enabled;
 } cfg_Config;
 
 // Error codes

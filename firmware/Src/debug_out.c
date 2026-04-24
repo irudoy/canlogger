@@ -5,6 +5,7 @@
 #include "can_drv.h"
 #include "vin_sense.h"
 #include "bkp_log.h"
+#include "gps_drv.h"
 #include "stm32f4xx_hal.h"
 #include "cmsis_os2.h"
 #include "fatfs.h"
@@ -204,7 +205,68 @@ static void cmd_help(void) {
          "  pause     - flush & close log, keep SD mounted (reboot to resume)\r\n"
          "  mark [txt]- write marker to log (K0 button or CDC, txt default 'cdc')\r\n"
          "  settime YYYY-MM-DD HH:MM:SS - set RTC (survives reset via VBAT)\r\n"
-         "  lastfault - show last fault from BKP regs (persistent)\r\n");
+         "  lastfault - show last fault from BKP regs (persistent)\r\n"
+         "  gps       - show GPS fix/position/counters\r\n"
+         "  gps_raw   - toggle raw NMEA passthrough to CDC\r\n");
+}
+
+// Print a signed float with millideg precision using integer formatting —
+// avoids pulling in full %f printf support on embedded newlib nano.
+static void print_deg6(double v) {
+  int neg = v < 0;
+  if (neg) v = -v;
+  uint32_t whole = (uint32_t)v;
+  uint32_t frac  = (uint32_t)((v - (double)whole) * 1000000.0 + 0.5);
+  printf("%s%lu.%06lu", neg ? "-" : "", (unsigned long)whole, (unsigned long)frac);
+}
+
+static void cmd_gps(void) {
+  const gps_State* g = gps_drv_state();
+  uint32_t ok  = gps_drv_count_ok();
+  uint32_t bad = gps_drv_count_bad();
+  uint32_t ign = gps_drv_count_ignored();
+  uint8_t  ovf = gps_drv_lb_overflow();
+  printf("gps: fix=%u sats=%u raw=%u\r\n",
+         g->fix_quality, g->satellites, gps_drv_get_raw());
+  if (g->has_position) {
+    printf("  lat="); print_deg6(g->lat_deg);
+    printf(" lon="); print_deg6(g->lon_deg);
+    printf("\r\n");
+  } else {
+    printf("  lat=- lon=-\r\n");
+  }
+  if (g->has_altitude) {
+    int alt_cm = (int)(g->altitude_m * 100.0f);
+    printf("  alt=%d.%02dm\r\n", alt_cm / 100, (alt_cm < 0 ? -alt_cm : alt_cm) % 100);
+  }
+  if (g->has_motion) {
+    int kmh_x10 = (int)(g->speed_ms * 3.6f * 10.0f);
+    int crs_x10 = (int)(g->course_deg * 10.0f);
+    printf("  speed=%d.%dkm/h course=%d.%ddeg\r\n",
+           kmh_x10 / 10, kmh_x10 % 10, crs_x10 / 10, crs_x10 % 10);
+  }
+  if (g->has_fix) {
+    int hdop_x10 = (int)(g->hdop * 10.0f);
+    printf("  hdop=%d.%d\r\n", hdop_x10 / 10, hdop_x10 % 10);
+  }
+  if (g->has_date) {
+    printf("  utc=%04u-%02u-%02u", g->year, g->month, g->day);
+  } else {
+    printf("  utc=----");
+  }
+  if (g->has_time) {
+    printf(" %02u:%02u:%02u.%03u\r\n", g->hour, g->minute, g->second, g->millisecond);
+  } else {
+    printf("\r\n");
+  }
+  printf("  cnt: ok=%lu bad=%lu ignored=%lu lb_ovf=%u\r\n",
+         (unsigned long)ok, (unsigned long)bad, (unsigned long)ign, ovf);
+}
+
+static void cmd_gps_raw(void) {
+  uint8_t newv = gps_drv_get_raw() ? 0 : 1;
+  gps_drv_set_raw(newv);
+  printf("gps_raw %s\r\n", newv ? "ON" : "OFF");
 }
 
 static void cmd_lastfault(void) {
@@ -567,6 +629,10 @@ void debug_cmd_poll(const cfg_Config* cfg, int init_ok, const ring_Buffer* rb) {
     }
   } else if (strcmp(line, "lastfault") == 0) {
     cmd_lastfault();
+  } else if (strcmp(line, "gps") == 0) {
+    cmd_gps();
+  } else if (strcmp(line, "gps_raw") == 0) {
+    cmd_gps_raw();
   } else if (strncmp(line, "settime ", 8) == 0) {
     cmd_settime(line + 8);
   } else if (strncmp(line, "get ", 4) == 0) {

@@ -69,6 +69,7 @@ typedef struct {
   uint8_t  has_valid_min, has_valid_max;
   uint8_t  invalid_strategy;           // CFG_INVALID_LAST_GOOD|CLAMP|SKIP
   uint8_t  preset;                     // CFG_PRESET_NONE|AEM_UEGO
+  uint8_t  gps_source;                 // CFG_GPS_SRC_* (0 = поле не от GPS)
 } cfg_Field;
 
 typedef struct {
@@ -81,6 +82,7 @@ typedef struct {
   uint16_t  num_can_ids;
   uint8_t   demo;             // авто: 1 если есть поля с demo_func
   demo_Gen  demo_gen;
+  uint8_t   gps_enabled;      // `[gps] enable = 1` — auto-инжектит gps_lat/lon/alt/speed_kmh/fix
 } cfg_Config;
 
 // Парсит INI-текст из буфера. Возвращает 0 при успехе, код ошибки иначе.
@@ -124,6 +126,10 @@ int can_map_init(can_FieldValues* fv, const cfg_Config* cfg);
 // Возвращает количество обновлённых полей.
 int can_map_process(can_FieldValues* fv, const cfg_Config* cfg, const can_Frame* frame);
 
+// Пишет в shadow buffer значения всех полей с gps_source != NONE из gps_State.
+// Вызывается под shadow_mutex после gps_drv_poll().
+int can_map_update_gps(can_FieldValues* fv, const cfg_Config* cfg, const gps_State* gs);
+
 // Сбрасывает флаг updated.
 void can_map_reset_updated(can_FieldValues* fv);
 ```
@@ -145,6 +151,35 @@ int mlg_write_marker(uint8_t* buf, size_t buf_size,
                      uint8_t counter, uint16_t timestamp,
                      const char* message);
 ```
+
+### gps_nmea — NMEA-0183 парсер
+
+Pure-C line assembler + sentence decoder для u-blox NEO-6M и совместимых приёмников. Работает на хосте под Unity.
+
+```c
+// Lib/gps_nmea.h
+
+// Накапливаемое состояние; поля живут между сообщениями, has_* флаги показывают
+// что реально пришло. Все известные talker ID принимаются (GP/GN/GL/GA/BD/GB).
+typedef struct {
+  uint8_t  hour, minute, second; uint16_t millisecond; uint8_t has_time;
+  uint16_t year; uint8_t month, day; uint8_t has_date;
+  double   lat_deg, lon_deg; uint8_t has_position;
+  float    altitude_m;       uint8_t has_altitude;
+  uint8_t  fix_quality, satellites; float hdop; uint8_t has_fix;
+  float    speed_ms, course_deg; uint8_t has_motion;
+} gps_State;
+
+typedef struct {
+  char    buf[GPS_NMEA_MAX_LEN];
+  uint8_t len, in_sentence, overflow;
+} gps_LineBuffer;
+
+int  gps_lb_feed_byte(gps_LineBuffer* lb, uint8_t b, const char** out);
+gps_ParseResult gps_parse_sentence(gps_State* s, const char* sentence);
+```
+
+Парсит GGA (время/fix/координаты/высота/спутники/HDOP) и RMC (время/дата/координаты/скорость/курс). Прочие NMEA-типы (VTG/GSA/GSV/GLL) распознаются, но возвращают `GPS_PARSE_IGNORED`. `$` всегда рестартит sentence, переполнение latch'ит `overflow` и сбрасывается при следующем `$`.
 
 ### ring_buf — кольцевой буфер CAN-фреймов
 
@@ -179,6 +214,18 @@ int  ring_buf_is_full(const ring_Buffer* rb);
 ```c
 // Src/can_drv.c
 // HAL_CAN_RxFifo0MsgPendingCallback → конвертация → ring_buf_push()
+```
+
+### gps_drv — USART3 DMA → NMEA парсер
+
+Обёртка над `HAL_UART_Receive_DMA` в CIRCULAR-режиме. Буфер `rx_dma_buf[128]` живёт в основном SRAM (DMA1 на F4 не умеет в CCM). Периодический poll из `task_producer` читает `NDTR` ⇒ вычисляет `write_pos`, опустошает новые байты через `gps_lb_feed_byte` в `gps_nmea`. Выход из `gps_drv_state()` — срез текущего `gps_State`, копируется в shadow под `shadow_mutex`.
+
+```c
+// Src/gps_drv.c
+void gps_drv_init(void);             // запуск circular DMA RX
+int  gps_drv_poll(void);             // drain + parse; возвращает кол-во OK-sentence
+const gps_State* gps_drv_state(void);
+void gps_drv_set_raw(uint8_t en);    // CDC passthrough для отладки железа
 ```
 
 ### sd_write — запись на SD

@@ -66,7 +66,7 @@
 - [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit (прототип на breadboard, см. [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
 - [ ] RC-debounce кнопок маркера/shutdown на hat (100 нФ + опц. 1–10 кОм у connector'а PE4/PE3) — убирает программный 300мс lockout, снимает проблему дребезга контактов при отпускании. Отладочные K0/K1 на основной плате не монтировать в production
 - [ ] Активная пищалка на hat — звуковой status-check без визуального контакта с платой: mount OK, ошибки конфига/SD, fault на boot (из BKP). Дополняет LED-индикацию, слышно из-под торпедо
-- [ ] GPS модуль — геопозиция + точное реальное время
+- [~] GPS модуль — геопозиция + точное реальное время. Firmware: NMEA-парсер GGA/RMC + USART3 DMA circular RX, конфиг `[gps] enable = 1` автоинжектит `gps_lat/lon/alt/speed_kmh/fix`, опциональные поля через `source = gps:<tag>`, one-shot RTC sync на первый fix с датой, CDC `gps`/`gps_raw`. Hardware: нужна активная антенна с нормальным RF-трактом (в помещении через low-E стекло NEO-6M ловит максимум 3 сателлита, fix не приходит — заказана Triada 2178 + U.FL→SMA pigtail)
 
 #### Software
 

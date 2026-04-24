@@ -205,3 +205,100 @@ void can_map_build_mlg_fields(const cfg_Config* cfg, mlg_Field* out, size_t max_
 void can_map_reset_updated(can_FieldValues* fv) {
   fv->updated = 0;
 }
+
+// --- GPS field write-back ---
+
+static void pack_be_u16(uint8_t* d, uint16_t v) { d[0] = v >> 8; d[1] = v; }
+static void pack_be_u32(uint8_t* d, uint32_t v) {
+  d[0] = v >> 24; d[1] = v >> 16; d[2] = v >> 8; d[3] = v;
+}
+
+// Write a float value into the shadow slot in the field's declared MLG type.
+// Respects scale/offset so user-overridden scale can reuse a standard slot.
+static void write_gps_val(uint8_t* dest, const cfg_Field* f, float display_val) {
+  float raw = display_val / (f->scale == 0.0f ? 1.0f : f->scale) - f->offset;
+  switch (f->type) {
+    case MLG_U08: dest[0] = (uint8_t)(raw + 0.5f); break;
+    case MLG_S08: dest[0] = (uint8_t)(int8_t)(raw >= 0 ? raw + 0.5f : raw - 0.5f); break;
+    case MLG_U16: pack_be_u16(dest, (uint16_t)(raw + 0.5f)); break;
+    case MLG_S16: {
+      int16_t s = (int16_t)(raw >= 0 ? raw + 0.5f : raw - 0.5f);
+      pack_be_u16(dest, (uint16_t)s);
+      break;
+    }
+    case MLG_U32: pack_be_u32(dest, (uint32_t)(raw + 0.5f)); break;
+    case MLG_S32: {
+      int32_t s = (int32_t)(raw >= 0 ? raw + 0.5f : raw - 0.5f);
+      pack_be_u32(dest, (uint32_t)s);
+      break;
+    }
+    case MLG_F32: {
+      uint32_t bits;
+      memcpy(&bits, &raw, sizeof(bits));
+      pack_be_u32(dest, bits);
+      break;
+    }
+    default: break;
+  }
+}
+
+int can_map_update_gps(can_FieldValues* fv, const cfg_Config* cfg, const gps_State* gs) {
+  int written = 0;
+  size_t offset = 0;
+  for (int i = 0; i < cfg->num_fields; i++) {
+    const cfg_Field* f = &cfg->fields[i];
+    size_t field_size = mlg_field_data_size((mlg_FieldType)f->type);
+    if (f->gps_source != CFG_GPS_SRC_NONE) {
+      uint8_t* dest = fv->values + offset;
+      switch (f->gps_source) {
+        case CFG_GPS_SRC_LAT:
+          if (gs->has_position) { write_gps_val(dest, f, (float)gs->lat_deg); written++; }
+          break;
+        case CFG_GPS_SRC_LON:
+          if (gs->has_position) { write_gps_val(dest, f, (float)gs->lon_deg); written++; }
+          break;
+        case CFG_GPS_SRC_ALT:
+          if (gs->has_altitude) { write_gps_val(dest, f, gs->altitude_m); written++; }
+          break;
+        case CFG_GPS_SRC_SPEED_MS:
+          if (gs->has_motion) { write_gps_val(dest, f, gs->speed_ms); written++; }
+          break;
+        case CFG_GPS_SRC_SPEED_KMH:
+          if (gs->has_motion) { write_gps_val(dest, f, gs->speed_ms * 3.6f); written++; }
+          break;
+        case CFG_GPS_SRC_COURSE:
+          if (gs->has_motion) { write_gps_val(dest, f, gs->course_deg); written++; }
+          break;
+        case CFG_GPS_SRC_SATS:
+          write_gps_val(dest, f, (float)gs->satellites); written++; break;
+        case CFG_GPS_SRC_HDOP:
+          if (gs->has_fix) { write_gps_val(dest, f, gs->hdop); written++; }
+          break;
+        case CFG_GPS_SRC_FIX:
+          write_gps_val(dest, f, (float)gs->fix_quality); written++; break;
+        case CFG_GPS_SRC_YEAR:
+          if (gs->has_date) { write_gps_val(dest, f, (float)gs->year); written++; }
+          break;
+        case CFG_GPS_SRC_MONTH:
+          if (gs->has_date) { write_gps_val(dest, f, (float)gs->month); written++; }
+          break;
+        case CFG_GPS_SRC_DAY:
+          if (gs->has_date) { write_gps_val(dest, f, (float)gs->day); written++; }
+          break;
+        case CFG_GPS_SRC_HOUR:
+          if (gs->has_time) { write_gps_val(dest, f, (float)gs->hour); written++; }
+          break;
+        case CFG_GPS_SRC_MINUTE:
+          if (gs->has_time) { write_gps_val(dest, f, (float)gs->minute); written++; }
+          break;
+        case CFG_GPS_SRC_SECOND:
+          if (gs->has_time) { write_gps_val(dest, f, (float)gs->second); written++; }
+          break;
+        default: break;
+      }
+    }
+    offset += field_size;
+  }
+  if (written > 0) fv->updated = 1;
+  return written;
+}

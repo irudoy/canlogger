@@ -34,6 +34,7 @@
 #include "demo_can.h"
 #include "vin_sense.h"
 #include "bkp_log.h"
+#include "gps_drv.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -61,6 +62,9 @@ RTC_HandleTypeDef hrtc;
 SD_HandleTypeDef hsd;
 DMA_HandleTypeDef hdma_sdio_rx;
 DMA_HandleTypeDef hdma_sdio_tx;
+
+UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart3_rx;
 
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -111,6 +115,7 @@ static void MX_CAN1_Init(void);
 static void MX_SDIO_SD_Init(void);
 static void MX_RTC_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_USART3_UART_Init(void);
 void StartDefaultTask(void *argument);
 
 static void MX_NVIC_Init(void);
@@ -171,6 +176,7 @@ int main(void)
   MX_FATFS_Init();
   MX_RTC_Init();
   MX_ADC1_Init();
+  MX_USART3_UART_Init();
 
   /* Initialize interrupts */
   MX_NVIC_Init();
@@ -487,6 +493,39 @@ static void MX_SDIO_SD_Init(void)
 }
 
 /**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 9600;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -494,8 +533,12 @@ static void MX_DMA_Init(void)
 
   /* DMA controller clock enable */
   __HAL_RCC_DMA2_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 7, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
   /* DMA2_Stream3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream3_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream3_IRQn);
@@ -521,8 +564,8 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LED_1_Pin|LED_2_Pin, GPIO_PIN_RESET);
@@ -622,6 +665,8 @@ void StartDefaultTask(void *argument)
   // RTOS sd_diskio template requires osKernelRunning for BSP_SD_Init)
   init_ok = (lw_init(&config, &field_values) == 0);
 
+  gps_drv_init();
+
   // Extract field metadata for demo generator
   if (init_ok && config.demo) {
     for (int i = 0; i < config.num_fields; i++) {
@@ -680,6 +725,10 @@ void StartDefaultTask(void *argument)
     {
       can_Frame frame;
       osMutexAcquire(shadow_mutex, osWaitForever);
+      gps_drv_poll();
+      if (init_ok && config.gps_enabled) {
+        can_map_update_gps(&field_values, &config, gps_drv_state());
+      }
       while (ring_buf_pop(&can_rx_buf, &frame) == 0) {
         if (init_ok) can_map_process(&field_values, &config, &frame);
         can_frames_processed++;
@@ -694,6 +743,34 @@ void StartDefaultTask(void *argument)
         field_values.updated = 1;
       }
       osMutexRelease(shadow_mutex);
+    }
+
+    // One-shot RTC sync on first GPS fix with date+time. `gps_rtc_synced`
+    // latches for the life of this boot so the loop doesn't keep re-setting
+    // the RTC every iteration. CDC `settime` still works as a manual override.
+    {
+      static uint8_t gps_rtc_synced = 0;
+      if (!gps_rtc_synced) {
+        const gps_State* gs = gps_drv_state();
+        if (gs->has_fix && gs->has_date && gs->has_time) {
+          #define BCD(v) (uint8_t)(((v) / 10) << 4 | ((v) % 10))
+          RTC_TimeTypeDef t = {
+            .Hours = BCD(gs->hour), .Minutes = BCD(gs->minute), .Seconds = BCD(gs->second),
+            .DayLightSaving = RTC_DAYLIGHTSAVING_NONE,
+            .StoreOperation = RTC_STOREOPERATION_RESET,
+          };
+          RTC_DateTypeDef d = {
+            .WeekDay = RTC_WEEKDAY_MONDAY,
+            .Month = BCD(gs->month), .Date = BCD(gs->day),
+            .Year = BCD(gs->year % 100),
+          };
+          #undef BCD
+          if (HAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BCD) == HAL_OK &&
+              HAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BCD) == HAL_OK) {
+            gps_rtc_synced = 1;
+          }
+        }
+      }
     }
 
     debug_out_tick(can_frames_processed, config.num_fields, init_ok);

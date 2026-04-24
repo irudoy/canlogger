@@ -456,6 +456,108 @@ void test_preset_aem_uego_accepts_valid(void) {
   TEST_ASSERT_EQUAL_HEX8(0xFE, fv.values[1]);
 }
 
+// --- GPS field write-back ---
+
+static float read_be_f32(const uint8_t* p) {
+  uint32_t bits = ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+                  ((uint32_t)p[2] <<  8) |  (uint32_t)p[3];
+  float v;
+  memcpy(&v, &bits, sizeof(v));
+  return v;
+}
+
+static uint16_t read_be_u16(const uint8_t* p) {
+  return (uint16_t)((p[0] << 8) | p[1]);
+}
+
+void test_gps_update_writes_f32_lat_lon_alt(void) {
+  // Synthesize the same layout cfg_finalize would auto-inject.
+  cfg.log_interval_ms = 100;
+  cfg.gps_enabled = 1;
+  cfg.num_fields = 3;
+  cfg.fields[0] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_LAT };
+  cfg.fields[1] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_LON };
+  cfg.fields[2] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_ALT };
+  TEST_ASSERT_EQUAL(0, can_map_init(&fv, &cfg));
+  TEST_ASSERT_EQUAL(12, fv.record_length);
+
+  gps_State gs = {0};
+  gs.has_position = 1; gs.lat_deg = 47.285;  gs.lon_deg = 8.5650;
+  gs.has_altitude = 1; gs.altitude_m = 499.6f;
+
+  int n = can_map_update_gps(&fv, &cfg, &gs);
+  TEST_ASSERT_EQUAL(3, n);
+  TEST_ASSERT_EQUAL(1, fv.updated);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 47.285f, read_be_f32(fv.values + 0));
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 8.5650f, read_be_f32(fv.values + 4));
+  TEST_ASSERT_FLOAT_WITHIN(0.1f,   499.6f, read_be_f32(fv.values + 8));
+}
+
+void test_gps_update_respects_has_flags(void) {
+  // Without has_position, lat/lon slots must stay at their prior values.
+  cfg.num_fields = 2;
+  cfg.fields[0] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_LAT };
+  cfg.fields[1] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_LON };
+  can_map_init(&fv, &cfg);
+  memset(fv.values, 0xAA, fv.record_length);  // sentinel
+
+  gps_State gs = {0};  // no fix, no position
+  TEST_ASSERT_EQUAL(0, can_map_update_gps(&fv, &cfg, &gs));
+  for (size_t i = 0; i < fv.record_length; i++) {
+    TEST_ASSERT_EQUAL_HEX8(0xAA, fv.values[i]);
+  }
+}
+
+void test_gps_update_speed_kmh_conversion(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_SPEED_KMH };
+  can_map_init(&fv, &cfg);
+  gps_State gs = {0};
+  gs.has_motion = 1; gs.speed_ms = 10.0f;  // 10 m/s == 36 km/h
+  TEST_ASSERT_EQUAL(1, can_map_update_gps(&fv, &cfg, &gs));
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 36.0f, read_be_f32(fv.values));
+}
+
+void test_gps_update_fix_u08(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){ .type = MLG_U08, .bit_length = 8, .scale = 1.0f, .gps_source = CFG_GPS_SRC_FIX };
+  can_map_init(&fv, &cfg);
+  gps_State gs = {0};
+  gs.fix_quality = 2;
+  TEST_ASSERT_EQUAL(1, can_map_update_gps(&fv, &cfg, &gs));
+  TEST_ASSERT_EQUAL_HEX8(2, fv.values[0]);
+}
+
+void test_gps_update_year_u16(void) {
+  cfg.num_fields = 1;
+  cfg.fields[0] = (cfg_Field){ .type = MLG_U16, .bit_length = 16, .scale = 1.0f, .gps_source = CFG_GPS_SRC_YEAR };
+  can_map_init(&fv, &cfg);
+  gps_State gs = {0};
+  gs.has_date = 1; gs.year = 2026;
+  TEST_ASSERT_EQUAL(1, can_map_update_gps(&fv, &cfg, &gs));
+  TEST_ASSERT_EQUAL_HEX16(2026, read_be_u16(fv.values));
+}
+
+void test_gps_update_non_gps_fields_untouched(void) {
+  // Mix CAN and GPS fields; verify GPS writes only touch GPS slots.
+  cfg.num_fields = 3;
+  cfg.fields[0] = (cfg_Field){ .can_id = 0x123, .type = MLG_U08, .start_byte = 0, .bit_length = 8, .scale = 1.0f };
+  strcpy(cfg.fields[0].name, "RPM");
+  cfg.fields[1] = (cfg_Field){ .type = MLG_F32, .bit_length = 32, .scale = 1.0f, .gps_source = CFG_GPS_SRC_LAT };
+  cfg.fields[2] = (cfg_Field){ .can_id = 0x124, .type = MLG_U08, .start_byte = 0, .bit_length = 8, .scale = 1.0f };
+  strcpy(cfg.fields[2].name, "Temp");
+  can_map_init(&fv, &cfg);
+  TEST_ASSERT_EQUAL(6, fv.record_length);
+  memset(fv.values, 0xAA, fv.record_length);
+
+  gps_State gs = {0};
+  gs.has_position = 1; gs.lat_deg = 50.0;
+  can_map_update_gps(&fv, &cfg, &gs);
+  TEST_ASSERT_EQUAL_HEX8(0xAA, fv.values[0]);                // RPM slot untouched
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 50.0f, read_be_f32(fv.values + 1));
+  TEST_ASSERT_EQUAL_HEX8(0xAA, fv.values[5]);                // Temp slot untouched
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_init_single_field);
@@ -482,5 +584,11 @@ int main(void) {
   RUN_TEST(test_skip_strategy_does_not_update);
   RUN_TEST(test_preset_aem_uego_rejects_ffff);
   RUN_TEST(test_preset_aem_uego_accepts_valid);
+  RUN_TEST(test_gps_update_writes_f32_lat_lon_alt);
+  RUN_TEST(test_gps_update_respects_has_flags);
+  RUN_TEST(test_gps_update_speed_kmh_conversion);
+  RUN_TEST(test_gps_update_fix_u08);
+  RUN_TEST(test_gps_update_year_u16);
+  RUN_TEST(test_gps_update_non_gps_fields_untouched);
   return UNITY_END();
 }

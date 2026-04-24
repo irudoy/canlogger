@@ -35,6 +35,7 @@ make cdc-put FILE=config.ini                     # upload file to SD via CDC
 - **RAM** — `config` (~53 KB) в CCM через `.ccmram`; `ring_Buffer` (64 KB) в main SRAM. MLG-заголовок строится на лету из `cfg_Config`.
 - **MLVLG v2** — big-endian. `DisplayValue = (rawValue + transform) * scale`.
 - **Config** — INI на SD. Extended 29-bit через `is_extended = 1`; sub-byte через `start_bit` + `bit_length`; plausibility через `valid_min`/`valid_max` + `invalid_strategy` (last_good/clamp/skip) и `preset` (aem_uego). См. `docs/CONFIG_GUIDE.md`.
+- **GPS** — опциональный NMEA-приёмник (u-blox NEO-6M и совместимые) на USART3 @ 9600 8N1 (PB10 TX / PB11 RX) через DMA1_Stream1 circular RX. Парсер `Lib/gps_nmea.c` (host-testable, GGA/RMC), драйвер `Src/gps_drv.c` (NDTR polling из `task_producer`, буфер в основном SRAM — DMA1 не видит CCM). `[gps] enable = 1` автоинжектит минимум `gps_lat/lon/alt/speed_kmh/fix`; расширение через `[field] source = gps:*`. One-shot RTC sync на первый fix с датой. CDC: `gps` (snapshot), `gps_raw` (toggle NMEA passthrough).
 - **RTC** — LSE + CR1220 на VBAT; выживает через `RTC_FLAG_INITS`. Выставляется CDC-командой `settime`. Файлы `YYYY-MM-DD_HH-MM-SS_NN.mlg` (LFN), коллизии через `FA_CREATE_NEW` + `_NN`.
 - **FatFS** — `_USE_LFN = 2`, `_FS_REENTRANT = 0` (single-task, только из `task_sd`).
 - **BKP registers** — `Src/bkp_log.c`: DR1 session, DR2 fault session, DR3 packed fault. CDC `lastfault`.
@@ -46,4 +47,5 @@ make cdc-put FILE=config.ini                     # upload file to SD via CDC
 - CAN1: PB8/PB9 (RX/TX), default 500 kbit/s; трансивер TJA1050 на модифицированной MCP2515-плате (SO→TX, SI→RX).
 - SD: SDIO 4-bit + FatFS.
 - USB CDC на PA11/PA12.
+- GPS (опц.): USART3 PB10/PB11 → NEO-6M 4-pin (VCC 5V / GND / TX → PB11 / RX ← PB10), активная антенна через U.FL/MHF1 → SMA.
 - LEDs: PA6/D2, PA7/D3 (active-low). Кнопки: PE3/K1 (shutdown), PE4/K0 (MLG marker).

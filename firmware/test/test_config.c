@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "config.h"
+#include "mlvlg.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -516,6 +517,101 @@ void test_parse_preset_aem_uego(void) {
   TEST_ASSERT_EQUAL(CFG_PRESET_AEM_UEGO, cfg.fields[0].preset);
 }
 
+// --- GPS ---
+
+void test_gps_section_auto_injects_defaults(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 100\n"
+    "[gps]\n"
+    "enable = 1\n";
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(text, strlen(text), &cfg));
+  TEST_ASSERT_EQUAL(1, cfg.gps_enabled);
+  // Five defaults: lat, lon, alt, speed_kmh, fix
+  TEST_ASSERT_EQUAL(5, cfg.num_fields);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_LAT,       cfg.fields[0].gps_source);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_LON,       cfg.fields[1].gps_source);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_ALT,       cfg.fields[2].gps_source);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_SPEED_KMH, cfg.fields[3].gps_source);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_FIX,       cfg.fields[4].gps_source);
+  TEST_ASSERT_EQUAL_STRING("gps_lat", cfg.fields[0].name);
+  TEST_ASSERT_EQUAL_STRING("deg", cfg.fields[0].units);
+  TEST_ASSERT_EQUAL_STRING("GPS", cfg.fields[0].category);
+  TEST_ASSERT_EQUAL(MLG_F32, cfg.fields[0].type);
+  TEST_ASSERT_EQUAL(MLG_U08, cfg.fields[4].type);
+  // Defaults must pass validation (record_length computable without can_map).
+}
+
+void test_gps_section_disabled_when_zero(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 100\n"
+    "[gps]\n"
+    "enable = 0\n";
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(text, strlen(text), &cfg));
+  TEST_ASSERT_EQUAL(0, cfg.gps_enabled);
+  TEST_ASSERT_EQUAL(0, cfg.num_fields);
+}
+
+void test_gps_user_source_overrides_default_slot(void) {
+  // User provides their own lat with different units — auto-inject must skip
+  // LAT (dedup) but still add the other four defaults.
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 100\n"
+    "[gps]\n"
+    "enable = 1\n"
+    "[field]\n"
+    "name = lat_custom\n"
+    "units = deg\n"
+    "type = F32\n"
+    "source = gps:lat\n"
+    "digits = 5\n";
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(text, strlen(text), &cfg));
+  TEST_ASSERT_EQUAL(5, cfg.num_fields);  // 1 user + 4 injected (LON/ALT/SPEED/FIX)
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_LAT, cfg.fields[0].gps_source);
+  TEST_ASSERT_EQUAL_STRING("lat_custom", cfg.fields[0].name);
+  TEST_ASSERT_EQUAL(5, cfg.fields[0].digits);
+  // No duplicate LAT among auto-injected slots.
+  int lat_seen = 0;
+  for (int i = 0; i < cfg.num_fields; i++) {
+    if (cfg.fields[i].gps_source == CFG_GPS_SRC_LAT) lat_seen++;
+  }
+  TEST_ASSERT_EQUAL(1, lat_seen);
+}
+
+void test_gps_source_extras(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 100\n"
+    "[gps]\n"
+    "enable = 1\n"
+    "[field]\n"
+    "name = gps_sats\n"
+    "type = U08\n"
+    "source = gps:sats\n"
+    "[field]\n"
+    "name = gps_hdop\n"
+    "type = F32\n"
+    "source = gps:hdop\n";
+  TEST_ASSERT_EQUAL(CFG_OK, cfg_parse(text, strlen(text), &cfg));
+  // 2 user extras + 5 auto-injected defaults.
+  TEST_ASSERT_EQUAL(7, cfg.num_fields);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_SATS, cfg.fields[0].gps_source);
+  TEST_ASSERT_EQUAL(CFG_GPS_SRC_HDOP, cfg.fields[1].gps_source);
+}
+
+void test_gps_unknown_source_rejected(void) {
+  const char* text =
+    "[logger]\n"
+    "interval_ms = 100\n"
+    "[field]\n"
+    "name = bogus\n"
+    "type = F32\n"
+    "source = gps:not_a_real_tag\n";
+  TEST_ASSERT_EQUAL(CFG_ERR_VALUE, cfg_parse(text, strlen(text), &cfg));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_parse_minimal);
@@ -544,5 +640,10 @@ int main(void) {
   RUN_TEST(test_parse_invalid_strategy_values);
   RUN_TEST(test_parse_invalid_strategy_unknown_rejected);
   RUN_TEST(test_parse_preset_aem_uego);
+  RUN_TEST(test_gps_section_auto_injects_defaults);
+  RUN_TEST(test_gps_section_disabled_when_zero);
+  RUN_TEST(test_gps_user_source_overrides_default_slot);
+  RUN_TEST(test_gps_source_extras);
+  RUN_TEST(test_gps_unknown_source_rejected);
   return UNITY_END();
 }
