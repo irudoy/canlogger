@@ -1,113 +1,108 @@
-# Hat Prototype — Graceful Shutdown макет
+# Hat prototype — graceful-shutdown breadboard
 
-**Дата: 2026-04-11**
+**Date: 2026-04-11**
 
-Макетная сборка для проверки graceful shutdown: DC-DC + supercap + VIN_SENSE.
-CAN transceiver — на отдельной плате (как сейчас).
+Breadboard build to validate graceful shutdown: DC-DC + supercap + VIN_SENSE.
+The CAN transceiver stays on its own board (same as today).
 
-## Компоненты
+## Components
 
-| Функция | Компонент | Корпус | ID |
-|---------|-----------|--------|-----|
-| DC-DC 12V→5V | Готовый модуль (220µF 35V на выходе) | — | — |
-| Supercap | KAMCAP 2.5F 5.5V | Radial, полярный | — |
-| Supercap isolation | 1N5819 Schottky 40V 1A | DO-41 | D004 |
-| VIN_SENSE верх | 10KΩ | TH | R028 |
-| VIN_SENSE низ | 10KΩ | TH | R028 |
+| Function | Component | Package | ID |
+|----------|-----------|---------|----|
+| DC-DC 12 V → 5 V | Off-the-shelf module (220 µF 35 V on the output) | — | — |
+| Supercap | KAMCAP 2.5 F 5.5 V | Radial, polarised | — |
+| Supercap isolation | 1N5819 Schottky 40 V 1 A | DO-41 | D004 |
+| VIN_SENSE top | 10 kΩ | TH | R028 |
+| VIN_SENSE bottom | 10 kΩ | TH | R028 |
 
-## Схема
+## Schematic
 
 ```
                          ┌───────────────┐
-  12V (авто) ────────────┤  DC-DC модуль ├──── 5V_DC
+  12V (car) ─────────────┤  DC-DC module ├──── 5V_DC
                          └──────┬────────┘        │
                                 │           D004  │  1N5819
                                 │         ───────►|────────
-                                │        анод          катод
-                                │       (DC-DC)    (полоска)
+                                │        anode        cathode
+                                │       (DC-DC)    (stripe)
                                 │                     │
                                 │                  5V_CAP
                                 │                     │
                                 │         ┌───────────┼──────────┐
                                 │         │           │          │
-                                │       ┌─┴──┐     VCC платы    │
-                                │       │CAP │    (pin header)   │
+                                │       ┌─┴──┐   Board VCC       │
+                                │       │CAP │   (pin header)    │
                                 │       │2.5F│                   │
-                                │       │5.5V│  (+) вверх        │
-                                │       └─┬──┘  (−) полоска вниз │
+                                │       │5.5V│  (+) up           │
+                                │       └─┬──┘  (−) stripe down  │
                                 │         │                      │
                                 │        GND                    GND
                                 │
                              ┌──┴──┐
-                             │10KΩ │ R028
+                             │10kΩ │ R028
                              └──┬──┘
                                 │
                                 ├──── VIN_SENSE → PA0 (ADC1_IN0)
                                 │
                              ┌──┴──┐
-                             │10KΩ │ R028
+                             │10kΩ │ R028
                              └──┬──┘
                                 │
                                GND
 ```
 
-## Диод 1N5819 — ориентация
+## 1N5819 diode — orientation
 
 ```
-  DC-DC 5V ──── анод │▶  катод ──── supercap + VCC платы
+  DC-DC 5V ──── anode │▶  cathode ──── supercap + board VCC
                       ─────
-                      полоска на катоде (сторона supercap)
+                      stripe on the cathode (supercap side)
 ```
 
-Полоска на корпусе = катод = сторона supercap/платы.
-Ток течёт от DC-DC к плате. При пропадании 12V диод закрывается,
-supercap питает плату.
+The stripe on the package = cathode = supercap/board side.
+Current flows from DC-DC to the board. When 12 V disappears the diode closes and the supercap powers the board.
 
-## Supercap KAMCAP 2.5F 5.5V — полярность
+## Supercap KAMCAP 2.5 F 5.5 V — polarity
 
-- Полоска на корпусе = **минус** (к GND)
-- Длинная нога = **плюс** (к 5V_CAP)
+- Stripe on the can = **negative** (to GND)
+- Long leg = **positive** (to 5V_CAP)
 
-## VIN_SENSE делитель — расчёт
+## VIN_SENSE divider — calculation
 
-Снимаем с 5V_DC (выход DC-DC, до диода). DC-DC модуль уже фильтрует
-выбросы бортсети, безопасно без дополнительной защиты.
+Tap from 5V_DC (DC-DC output, before the diode). The DC-DC module already filters automotive transients, so no extra protection is needed.
 
-Делитель 10KΩ + 10KΩ = 1:2.
+Divider 10 kΩ + 10 kΩ = 1:2.
 
 ```
 V_adc = V_dc × 10 / (10 + 10) = V_dc / 2
 
-V_dc = 5.0V (норма)   → V_adc = 2.50V
-V_dc = 4.5V            → V_adc = 2.25V
-V_dc = 4.0V            → V_adc = 2.00V
-V_dc = 0.0V (пропало)  → V_adc = 0.00V
+V_dc = 5.0 V (nominal)  → V_adc = 2.50 V
+V_dc = 4.5 V            → V_adc = 2.25 V
+V_dc = 4.0 V            → V_adc = 2.00 V
+V_dc = 0.0 V (lost)     → V_adc = 0.00 V
 ```
 
-Порог shutdown определяется в firmware — подобрать экспериментально.
-Ожидаемо: V_dc быстро падает до 0 при потере 12V (supercap не держит
-эту точку, диод закрыт).
+The shutdown threshold is chosen in firmware — dial it in experimentally.
+Expected behaviour: V_dc drops quickly to 0 when 12 V is lost (the supercap does not hold that node; the diode is closed).
 
-## Логика работы
+## Operating logic
 
-1. **Питание есть**: 12V → DC-DC → 5V → через диод → supercap
-   заряжается до ~4.6V (5V минус Vf диода ~0.4V), плата работает от 5V
-2. **Питание пропало**: DC-DC выключается, 5V_DC падает к 0,
-   диод закрывается, плата живёт от supercap (4.6V → 4.4V min)
-3. **Детект**: ADC на PA0 читает VIN_SENSE, видит падение → `lw_shutdown = 1`
-4. **Shutdown**: task_sd делает flush → f_sync → f_close, LED D3 ON
-5. **Запас**: 2.5F × 0.2V / 0.110A ≈ **4.5 с** (от 4.6V до 4.4V min)
+1. **Power present**: 12 V → DC-DC → 5 V → through the diode → supercap charges to ~4.6 V (5 V minus the diode Vf ~0.4 V); the board runs on 5 V.
+2. **Power lost**: the DC-DC stops, 5V_DC drops to 0; the diode closes; the board lives off the supercap (4.6 V → 4.4 V min).
+3. **Detection**: ADC on PA0 reads VIN_SENSE, sees the drop → `lw_shutdown = 1`.
+4. **Shutdown**: task_sd performs flush → f_sync → f_close; LED D3 ON.
+5. **Margin**: 2.5 F × 0.2 V / 0.110 A ≈ **4.5 s** (from 4.6 V to the 4.4 V minimum).
 
 ## TODO
 
-- [ ] Настроить PA0 как ADC в CubeMX
-- [ ] Собрать макет
-- [ ] Проверить зарядку supercap (время, напряжение)
-- [ ] Проверить shutdown: отключить 12V, убедиться что MLG закрыт корректно
-- [ ] Подобрать порог VIN_SENSE для firmware
+- [ ] Configure PA0 as an ADC in CubeMX
+- [ ] Assemble the prototype
+- [ ] Verify supercap charging (time, voltage)
+- [ ] Verify shutdown: pull 12 V, confirm the MLG closes cleanly
+- [ ] Pick the VIN_SENSE threshold for firmware
 
-## Связанные документы
+## Related documents
 
-- `docs/PPK_MEASUREMENTS.md` — замеры тока для расчёта supercap
-- `docs/HARDWARE.md` — hat секция, пины
+- `docs/PPK_MEASUREMENTS.md` — current measurements for supercap sizing
+- `docs/HARDWARE.md` — hat section, pins
 - `docs/REQUIREMENTS.md` → v1.0 → Graceful shutdown

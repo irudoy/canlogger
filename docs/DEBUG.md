@@ -1,40 +1,40 @@
 # Debug: USB CDC
 
-## Подключение
+## Connection
 
-Micro-USB кабель от платы к ПК. На macOS появляется как `/dev/cu.usbmodemXXXX`.
+Micro-USB cable from the board to a PC. On macOS the device appears as `/dev/cu.usbmodemXXXX`.
 
 ```bash
-# Найти порт
+# Find the port
 ls /dev/cu.usbmodem*
 
-# Подключиться (рекомендуется picocom)
+# Connect (picocom is recommended)
 picocom /dev/cu.usbmodemXXXX -b 115200
 
-# Выход из picocom: Ctrl-A Ctrl-X
+# Exit picocom: Ctrl-A Ctrl-X
 ```
 
-Установка: `brew install picocom`
+Install: `brew install picocom`
 
-## CLI-команды
+## CLI commands
 
-При подключении устройство молчит (stream выключен). Набирайте команды, Enter для отправки. Ввод отображается (echo).
+On connect the device is silent (the stream is off). Type commands, press Enter to submit. Input is echoed.
 
-| Команда | Описание |
-|---------|----------|
-| `help` | Список команд |
-| `status` | Одноразовый снимок состояния |
-| `stream` | Включить периодический вывод (1 раз/сек). Любой ввод выключает stream |
-| `config` | Показать загруженный конфиг |
-| `ls` | Список файлов на SD с размерами |
-| `get <f>` | Скачать файл с SD (используйте `usb_get.py`). Авто-пауза логгера, reboot для продолжения записи |
-| `put <f> N` | Загрузить N байт в файл на SD. Авто-пауза логгера, reboot для применения нового конфига |
-| `fault` | Симулировать fatal error (записать FAULT файл) |
-| `stop` | Безопасно закрыть SD (перед прошивкой) |
-| `pause` | Закрыть лог-файл, SD остаётся смонтированной (reboot для продолжения записи) |
-| `mark [txt]` | Записать маркер в лог (MLG native block type 0x01). Без аргумента — `cdc`. Также по кнопке K0 (msg=`btn`) |
-| `settime YYYY-MM-DD HH:MM:SS` | Установить RTC (переживёт reset пока VBAT жив) |
-| `lastfault` | Последний fault из BKP регистров + session counter |
+| Command | Description |
+|---------|-------------|
+| `help` | Command list |
+| `status` | One-shot status snapshot |
+| `stream` | Enable periodic output (once per second). Any input disables the stream |
+| `config` | Show the loaded config |
+| `ls` | List files on the SD with sizes |
+| `get <f>` | Download a file from SD (use `usb_get.py`). Auto-pauses the logger; reboot to resume recording |
+| `put <f> N` | Upload N bytes into a file on SD. Auto-pauses the logger; reboot to apply a new config |
+| `fault` | Simulate a fatal error (writes a FAULT file) |
+| `stop` | Close the SD safely (before flashing) |
+| `pause` | Close the log file, keep the SD mounted (reboot to resume recording) |
+| `mark [txt]` | Write a marker into the log (MLG native block type 0x01). Without an argument — `cdc`. Also triggered by the K0 button (msg=`btn`) |
+| `settime YYYY-MM-DD HH:MM:SS` | Set the RTC (survives reset while VBAT is alive) |
+| `lastfault` | Last fault from the BKP registers + session counter |
 
 ### `help`
 
@@ -69,36 +69,36 @@ can: 32 ids bus=active tec=0 rec=0 lec=none overrun=0
   ...
 ```
 
-Дополнительные строки появляются по ситуации:
+Extra lines show up conditionally:
 
-- `sdio: cb=... ctmo=... dtmo=... dcrc=... dma=... last=... hal=...` — показывается только если хотя бы раз сработал `HAL_SD_ErrorCallback` или `hsd.ErrorCode != 0`.
-- `sd_w: nr=... c13e=... c13t=... dma=... cmd=... oob=...` — fine-grained счётчики early-return путей в `BSP_SD_WriteBlocks_DMA`, показываются только если их сумма > 0.
-- `sdw_err: eb=... dma=... txto=... csto=... sdma=... stxto=... @sec=... cnt=... tick=...` — per-failure-point счётчики wrapper'а `SD_write` (4 fast-path + 2 scratch-path точки отказа), показывается только если была хотя бы одна ошибка.
-- `rec=N lastrec=FR_X@site` — появляется рядом с `err=` если срабатывал `recover_file()`. `FR_X` — код FatFS, `site` = `sync` / `write`.
+- `sdio: cb=... ctmo=... dtmo=... dcrc=... dma=... last=... hal=...` — shown only if `HAL_SD_ErrorCallback` has fired at least once or `hsd.ErrorCode != 0`.
+- `sd_w: nr=... c13e=... c13t=... dma=... cmd=... oob=...` — fine-grained counters of the early-return paths in `BSP_SD_WriteBlocks_DMA`; shown only if their sum is > 0.
+- `sdw_err: eb=... dma=... txto=... csto=... sdma=... stxto=... @sec=... cnt=... tick=...` — per-failure-point counters in the `SD_write` wrapper (4 fast-path + 2 scratch-path failure sites); shown only if at least one error has occurred.
+- `rec=N lastrec=FR_X@site` — appears next to `err=` if `recover_file()` fired. `FR_X` is the FatFS code, `site` = `sync` / `write`.
 
-| Строка | Описание |
-|--------|----------|
-| `uptime` | Секунды с момента старта |
-| `frames` | Количество обработанных CAN-фреймов |
-| `fields` | Количество полей в конфиге |
-| `init` | 1 = конфиг загружен, логирование идёт; 0 = ошибка |
-| `stream` | 1 = периодический вывод включён |
-| `file` | Текущий MLG файл, размер в байтах |
-| `files` | Сколько файлов создано с момента старта |
-| `blocks` | Количество data blocks в текущем файле (uint8, wraps @256) |
-| `err=N/S` | N = счётчик ошибок SD, S = error state (1 = фатальная ошибка) |
-| `rec` | Сколько раз `recover_file()` отработал успешно (должно быть 0 на стабильной системе) |
-| `lastrec` | FRESULT и site последнего recovery trigger (диагностика) |
-| `sdw` | SD_write wrapper: `tot` = всего вызовов, `lat` = last/max latency (мс), `scratch` = сколько раз попали в slow path (unaligned buffer) |
-| `sdst` | SD_status wrapper: `calls` = всего вызовов, `fail` = transient PROGRAMMING событий, `rescued` = вылечены retry loop'ом, `hard` = превысили SD_STATUS_RETRY_MS, `maxret` = максимальное время retry (мс), `last_raw` = HAL card state на последнем hard fail |
-| `rb` | Ring buffer: count = фреймов в очереди, head/tail = позиции |
-| `sd` | Свободное / общее место на SD карте |
-| `can` | CAN диагностика: кол-во ID, `bus` = active/passive/bus-off, `tec`/`rec` = error counters, `lec` = last error code (none/stuff/form/ack/bit_rec/bit_dom/crc), `overrun` = FIFO0 overflow |
-| `0x640[8]` | CAN ID, DLC, сырые байты, время с последнего обновления |
+| Line | Description |
+|------|-------------|
+| `uptime` | Seconds since start |
+| `frames` | CAN frames processed |
+| `fields` | Number of fields in the config |
+| `init` | 1 = config loaded, logging active; 0 = error |
+| `stream` | 1 = periodic output enabled |
+| `file` | Current MLG file, size in bytes |
+| `files` | Files created since start |
+| `blocks` | Data blocks in the current file (uint8, wraps at 256) |
+| `err=N/S` | N = SD error count, S = error state (1 = fatal error) |
+| `rec` | How many times `recover_file()` succeeded (should be 0 on a stable system) |
+| `lastrec` | FRESULT and site of the last recovery trigger (diagnostics) |
+| `sdw` | SD_write wrapper: `tot` = total calls, `lat` = last/max latency (ms), `scratch` = how many times the slow path was hit (unaligned buffer) |
+| `sdst` | SD_status wrapper: `calls` = total calls, `fail` = transient PROGRAMMING events, `rescued` = recovered by the retry loop, `hard` = exceeded SD_STATUS_RETRY_MS, `maxret` = max retry time (ms), `last_raw` = HAL card state on the last hard fail |
+| `rb` | Ring buffer: count = frames queued, head/tail = positions |
+| `sd` | Free / total space on the SD card |
+| `can` | CAN diagnostics: ID count, `bus` = active/passive/bus-off, `tec`/`rec` = error counters, `lec` = last error code (none/stuff/form/ack/bit_rec/bit_dom/crc), `overrun` = FIFO0 overflow |
+| `0x640[8]` | CAN ID, DLC, raw bytes, time since the last update |
 
 ### `stream`
 
-Включает периодический вывод (как `status`, каждую секунду). Любое нажатие клавиши автоматически выключает stream — можно сразу вводить следующую команду.
+Enables periodic output (like `status`, once per second). Any key press turns the stream off — you can immediately type the next command.
 
 ```
 [42] frames=5000 fields=13 init=1 ids=4
@@ -117,7 +117,7 @@ bitrate=500000 interval=50ms fields=13 can_ids=4
   [12] 0x640 b2:16 MAP (kPa) s=1.000 o=0.00 lut=2
 ```
 
-Формат: `[индекс] CAN_ID start_byte:bit_length Имя (единицы) scale offset [lut=N]`
+Format: `[index] CAN_ID start_byte:bit_length Name (units) scale offset [lut=N]`
 
 ### `ls`
 
@@ -128,73 +128,73 @@ bitrate=500000 interval=50ms fields=13 can_ids=4
 12 files
 ```
 
-### `get <file>` — скачивание файла
+### `get <file>` — downloading a file
 
-Для скачивания MLG файлов без извлечения SD:
+To download MLG files without pulling the SD:
 
 ```bash
 python3 firmware/scripts/usb_get.py /dev/cu.usbmodemXXXX 06034200.MLG
 ```
 
-Можно указать путь сохранения:
+A target path can be specified:
 
 ```bash
 python3 firmware/scripts/usb_get.py /dev/cu.usbmodemXXXX 06034200.MLG ./downloads/log.mlg
 ```
 
-Зависимости: `pip3 install pyserial`
+Dependencies: `pip3 install pyserial`
 
-Протокол: `FILE:<name>:<size>\n` → raw binary → `\nEND\n`
+Protocol: `FILE:<name>:<size>\n` → raw binary → `\nEND\n`
 
-## Автоматизация (без picocom)
+## Automation (without picocom)
 
-Отправка команд из скрипта через picocom stdin:
+Feed commands from a script through picocom stdin:
 
 ```bash
-# Одна команда с таймаутом
+# One command with a timeout
 { sleep 1; printf "status\r"; sleep 2; printf "\x01\x18"; } | \
   picocom -b 115200 --noreset --quiet /dev/cu.usbmodemXXXX
 
-# Несколько команд подряд
+# Several commands in sequence
 { sleep 1; printf "help\r"; sleep 2; printf "ls\r"; sleep 2; printf "\x01\x18"; } | \
   picocom -b 115200 --noreset --quiet /dev/cu.usbmodemXXXX
 ```
 
-- `sleep 1` — ждём подключения CDC
-- `printf "cmd\r"` — отправляем команду (`\r` = Enter)
-- `sleep 2` — ждём ответ
-- `printf "\x01\x18"` — `Ctrl-A Ctrl-X`, выход из picocom
+- `sleep 1` — wait for the CDC to enumerate
+- `printf "cmd\r"` — send a command (`\r` = Enter)
+- `sleep 2` — wait for the reply
+- `printf "\x01\x18"` — `Ctrl-A Ctrl-X`, exit picocom
 
-## USB параметры
+## USB parameters
 
 - USB OTG FS, Device Only, Full Speed 12 Mbit/s
 - VID/PID: 0x0483/0x5740 (STMicroelectronics CDC)
 - Product: "CANLogger Debug Port"
-- VBUS sensing: отключен
-- IRQ приоритет: 7 (ниже CAN = 5)
-- TX буфер: 640 байт, flush по `\n` или при заполнении
-- RX буфер: 80 байт (максимальная длина команды)
-- При BUSY: команды ждут до 50ms, stream-вывод молча дропается
+- VBUS sensing: disabled
+- IRQ priority: 7 (below CAN = 5)
+- TX buffer: 640 bytes, flushed on `\n` or when full
+- RX buffer: 80 bytes (maximum command length)
+- On BUSY: commands wait up to 50 ms, stream output is silently dropped
 
-## OpenOCD / GDB отладка
+## OpenOCD / GDB debugging
 
-Все команды из `firmware/`.
+All commands run from `firmware/`.
 
 ### `make ocd-server`
 
-Запускает OpenOCD GDB-сервер на порту :3333. Нужен для всех `ocd-*` команд.
+Starts the OpenOCD GDB server on port :3333. Required for every `ocd-*` command.
 
 ```bash
-make ocd-server  # в отдельном терминале
+make ocd-server  # in a separate terminal
 ```
 
 ### `make ocd-debug`
 
-Собирает, подключается через GDB, загружает прошивку. Интерактивная GDB сессия.
+Builds, connects via GDB, loads the firmware. Interactive GDB session.
 
 ### `make ocd-status`
 
-Одноразовый снимок состояния устройства (3 секунды работы → halt → dump):
+One-shot device status snapshot (3 seconds of runtime → halt → dump):
 
 ```
 === State ===
@@ -211,27 +211,27 @@ updated=1 values: 0 147 130 55 0 255 30
 
 ### `make ocd-dump`
 
-Расширенный дамп (5 секунд работы, скрипт `scripts/dump.gdb`).
+Extended dump (5 seconds of runtime, `scripts/dump.gdb`).
 
 ### `make gdb-server` / `make debug`
 
-Альтернатива через ST-LINK GDB Server (требует свежую прошивку ST-Link).
+Alternative via ST-LINK GDB Server (requires recent ST-Link firmware).
 
-### Важно
+### Important
 
-- OpenOCD и ST-LINK Programmer не могут работать одновременно (оба захватывают SWD)
-- Перед `make flash` убейте OpenOCD: `pkill -f openocd`
+- OpenOCD and the ST-LINK Programmer cannot run at the same time (both claim SWD)
+- Before `make flash`, kill OpenOCD: `pkill -f openocd`
 
-## Архитектура
+## Architecture
 
-Модуль `Src/debug_out.c`:
-- `__io_putchar()` → буферизованный `CDC_Transmit_FS()` с retry при BUSY (для команд)
-- `debug_cmd_receive()` — вызывается из `CDC_Receive_FS` (ISR), заполняет RX буфер, эхо
-- `debug_cmd_poll()` — вызывается из task_producer, парсит и выполняет команды
-- `debug_out_tick()` — периодический вывод (когда stream включён)
-- `debug_out_set_can()` — захват любого CAN фрейма для отображения
+Module `Src/debug_out.c`:
+- `__io_putchar()` → buffered `CDC_Transmit_FS()` with retry on BUSY (for commands)
+- `debug_cmd_receive()` — called from `CDC_Receive_FS` (ISR), fills the RX buffer, echoes
+- `debug_cmd_poll()` — called from task_producer, parses and executes commands
+- `debug_out_tick()` — periodic output (when the stream is enabled)
+- `debug_out_set_can()` — capture any CAN frame for display
 
-Main.c (task_producer — StartDefaultTask):
-- `debug_out_tick(...)` в task_producer loop
-- `debug_cmd_poll(&config, init_ok, &can_rx_buf)` в task_producer loop
-- `debug_out_set_can(...)` при получении каждого CAN фрейма
+main.c (task_producer — StartDefaultTask):
+- `debug_out_tick(...)` in the task_producer loop
+- `debug_cmd_poll(&config, init_ok, &can_rx_buf)` in the task_producer loop
+- `debug_out_set_can(...)` on every received CAN frame

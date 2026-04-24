@@ -1,151 +1,151 @@
-# Требования и роадмап: CAN Logger
+# Requirements and roadmap: CAN Logger
 
-## Видение проекта
+## Project vision
 
-Автономный универсальный логгер параметров CAN-шины, записывающий данные на SD-карту в формате MLVLG v2 (совместим с MegaLogViewer).
+A standalone universal logger for CAN-bus parameters that writes to an SD card in MLVLG v2 format (compatible with MegaLogViewer).
 
-**Ключевое свойство — универсальность.** Логгер не знает заранее, какие CAN-сообщения и параметры он будет записывать. Конфигурация маппинга CAN → MLG задаётся файлом на SD-карте. Это позволяет использовать одно устройство с разными автомобилями и протоколами без перепрошивки.
+**Key property — universality.** The logger does not know in advance which CAN messages and parameters it will record. The CAN → MLG mapping is described by a configuration file on the SD card. That lets one device be used across different vehicles and protocols without reflashing.
 
-## Аппаратная архитектура
+## Hardware architecture
 
-См. [HARDWARE.md](HARDWARE.md) — плата, пины, подключения, hat, E2E стенд.
+See [HARDWARE.md](HARDWARE.md) — board, pins, wiring, hat, E2E bench.
 
-## Программная архитектура
+## Software architecture
 
-См. [ARCHITECTURE.md](ARCHITECTURE.md) — модули, потоки данных, формат конфига, стратегия тестирования.
+See [ARCHITECTURE.md](ARCHITECTURE.md) — modules, data flows, config format, test strategy.
 
-## Роадмап
+## Roadmap
 
 ### PoC — done
 
-**Цель:** Доказать концепцию: записать валидный MLVLG-файл с тестовыми данными и открыть его в MegaLogViewer.
+**Goal:** prove the concept — produce a valid MLVLG file from test data and open it in MegaLogViewer.
 
-Подход: TDD — сначала тесты на хосте, потом проверка на устройстве.
+Approach: TDD — host tests first, then on-device verification.
 
-Результат:
-- [x] Очистить legacy код (убрать `Src/mlvlg.c`, `Inc/mlvlg.h` — заменены на `Lib/mlvlg.*`)
-- [x] Snapshot-тест: сгенерировать полный .mlg файл на хосте, валидировать через `mlg-converter`
-- [x] Интегрировать `Lib/mlvlg` с SD записью: header + фиксированные поля + тестовые data blocks
-- [x] Записать тестовые данные (счётчик / синусоида) в MLVLG файл на устройстве
-- [x] Открыть файл в MegaLogViewer и проверить корректность (параметры отображаются, графики работают)
+Outcome:
+- [x] Clean up legacy code (drop `Src/mlvlg.c`, `Inc/mlvlg.h` — replaced by `Lib/mlvlg.*`)
+- [x] Snapshot test: generate a full .mlg file on the host and validate it through `mlg-converter`
+- [x] Integrate `Lib/mlvlg` with SD writes: header + fixed fields + test data blocks
+- [x] Write test data (counter / sine wave) to an MLVLG file on the device
+- [x] Open the file in MegaLogViewer and verify correctness (parameters visible, plots work)
 
-21 тест (unit + snapshot), 0 failures. 453 записи при 20Hz, валидировано mlg-converter и MegaLogViewer.
+21 tests (unit + snapshot), 0 failures. 453 records at 20 Hz, validated against mlg-converter and MegaLogViewer.
 
-### MVP — Базовый рабочий логгер — done
+### MVP — basic working logger — done
 
-**Цель:** Записать CAN-данные с cansult на SD в валидный MLVLG-файл, открываемый в MegaLogViewer.
+**Goal:** capture CAN data from cansult to SD as a valid MLVLG file openable in MegaLogViewer.
 
-Результат:
-- [x] Включить CAN-периферию в CubeMX (CAN1 PB8/PB9, 500 kbit/s)
-- [x] Реализовать `can_drv` — CAN RX через прерывания → ring buffer (`Lib/ring_buf`)
-- [x] Реализовать `Lib/config` — INI-парсер конфигурации с SD
-- [x] Реализовать `Lib/can_map` — маппинг CAN-фреймов → MLG field values по конфигу
-- [x] Реализовать config-driven запись MLG header + data blocks на SD (в `log_writer`)
-- [x] Интеграция в main loop: config → can_map → mlvlg → sd_write
-- [x] Поведение без конфига: ошибка + LED индикация + K1 shutdown
-- [x] Ручной конфиг для cansult (11 параметров) — `test/cansult_config.ini`
-- [x] Тесты: парсер конфига, маппинг, bit extraction, ring buffer (58 тестов)
-- [x] E2E тест: cansult → Nissan ECU → CAN → canlogger → SD → MegaLogViewer
-- [x] Проверка в MegaLogViewer: Battery voltage graph 11.4V–15.5V с реальными изменениями
+Outcome:
+- [x] Enable CAN peripheral in CubeMX (CAN1 PB8/PB9, 500 kbit/s)
+- [x] Implement `can_drv` — interrupt-driven CAN RX → ring buffer (`Lib/ring_buf`)
+- [x] Implement `Lib/config` — INI config parser from SD
+- [x] Implement `Lib/can_map` — CAN frame → MLG field-value mapping driven by config
+- [x] Config-driven MLG header + data block writer to SD (in `log_writer`)
+- [x] Main-loop integration: config → can_map → mlvlg → sd_write
+- [x] Behaviour without a config: error + LED indication + K1 shutdown
+- [x] Hand-written cansult config (11 parameters) — `test/cansult_config.ini`
+- [x] Tests: config parser, mapping, bit extraction, ring buffer (58 tests)
+- [x] E2E test: cansult → Nissan ECU → CAN → canlogger → SD → MegaLogViewer
+- [x] MegaLogViewer check: Battery-voltage graph 11.4 V–15.5 V with real-world swings
 
-Конфигурируемый CAN bitrate, hardware ID фильтры, unix timestamp в MLG header.
+Configurable CAN bitrate, hardware ID filters, Unix timestamp in MLG header.
 
-### Следующий этап — отладка и стабильность
+### Next stage — debugging and stability
 
-- [x] Debug-обмен данными без извлечения SD → **USB CDC** (Virtual COM Port)
-- [x] Исследовать и исправить отвал cansult UART↔ECU через время
-- [x] Документация по конфигурации и формату MLG для пользователей
-- [x] Улучшение debug-интерфейса: CLI через USB CDC (help/status/stream/config/ls/get), скачивание MLG файлов (usb_get.py)
+- [x] Debug data exchange without pulling the SD → **USB CDC** (Virtual COM Port)
+- [x] Investigate and fix the cansult UART↔ECU dropout after some runtime
+- [x] User-facing documentation on configuration and MLG format
+- [x] Debug interface improvements: USB CDC CLI (help/status/stream/config/ls/get), MLG file download (usb_get.py)
 
-### v1.0 — Стабильный продукт
+### v1.0 — stable product
 
-**Цель:** Надёжный логгер для повседневного использования.
+**Goal:** dependable logger for day-to-day use.
 
 #### Hardware
 
-- [ ] Hat PCB: CAN-трансивер + DC-DC + shutdown circuit (прототип на breadboard, см. [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
-- [ ] RC-debounce кнопок маркера/shutdown на hat (100 нФ + опц. 1–10 кОм у connector'а PE4/PE3) — убирает программный 300мс lockout, снимает проблему дребезга контактов при отпускании. Отладочные K0/K1 на основной плате не монтировать в production
-- [ ] Активная пищалка на hat — звуковой status-check без визуального контакта с платой: mount OK, ошибки конфига/SD, fault на boot (из BKP). Дополняет LED-индикацию, слышно из-под торпедо
-- [~] GPS модуль — геопозиция + точное реальное время. Firmware: NMEA-парсер GGA/RMC + USART3 DMA circular RX, конфиг `[gps] enable = 1` автоинжектит `gps_lat/lon/alt/speed_kmh/fix`, опциональные поля через `source = gps:<tag>`, one-shot RTC sync на первый fix с датой, CDC `gps`/`gps_raw`. Hardware: нужна активная антенна с нормальным RF-трактом (в помещении через low-E стекло NEO-6M ловит максимум 3 сателлита, fix не приходит — заказана Triada 2178 + U.FL→SMA pigtail)
+- [ ] Hat PCB: CAN transceiver + DC-DC + shutdown circuit (breadboard prototype, see [HAT_PROTOTYPE.md](HAT_PROTOTYPE.md))
+- [ ] RC debounce for the marker/shutdown buttons on the hat (100 nF + optional 1–10 kΩ near the PE4/PE3 connector) — removes the 300 ms software lockout and kills contact-bounce on release. Do not populate the debug K0/K1 buttons on the main board in production
+- [ ] Active buzzer on the hat — audible status check without looking at the board: mount OK, config/SD errors, fault-on-boot (from BKP). Complements the LEDs and is audible from under the dashboard
+- [~] GPS module — geolocation + accurate wall-clock time. Firmware: NMEA parser GGA/RMC + USART3 DMA circular RX; config `[gps] enable = 1` auto-injects `gps_lat/lon/alt/speed_kmh/fix`; optional fields via `source = gps:<tag>`; one-shot RTC sync on the first fix that carries a date; CDC `gps`/`gps_raw`. Hardware: needs an active antenna with a proper RF path (indoors through low-E glass the NEO-6M sees at most three satellites and never locks — ordered a Triada 2178 + U.FL→SMA pigtail)
 
 #### Software
 
-- [x] Graceful shutdown при пропадании питания — VIN_SENSE ADC + armed debounce + lw_stop + auto-resume через NVIC_SystemReset, провалидировано на макете с суперкапом
-- [x] Поддержка extended CAN ID (29-bit) в конфиге и can_map — явный ключ `is_extended = 1` в `[field]`, hardware filter корректно настраивается на IDE=1 (используется для AEM 30-0300 `0x180`)
-- [x] Sub-byte (1-7 бит) поля в конфиге — ключи `start_bit` + `bit_length` для индивидуальных битовых флагов (статус ECU, реле, соленоиды)
-- [x] Plausibility-фильтр поля в конфиге — ключи `valid_min` / `valid_max` (в display-единицах, после scale/offset/LUT) + `invalid_strategy = last_good | clamp | skip`. Пресеты под sensor-fault энкодинги (`preset = aem_uego` → rejects raw 0xFFFF на AFR/Lambda). Закрывает RPM-спайки от UART-сдвигов cansult и AFR=96 на decel fuel-cut
-- [ ] Circular logging — при заполнении SD удалять самые старые MLG файлы и продолжать запись
-- [ ] Валидация конфига при загрузке с диагностикой ошибок
-- [x] Поле "Date" в MLG (U32 unix timestamp, display_style=MLG_DATE) — синтетическое поле первым в каждой записи, +4 байта/snapshot
-- [x] Маркеры в MLG (native block type 0x01) — кнопка K0 (PE4, EXTI falling, 300ms any-edge debounce, msg=`btn`) + CDC `mark [txt]`. На запись маркера D2 коротко гаснет (~75мс). Помогает быстро находить события в логе в MegaLogViewer
-- [ ] Настройка max_file_size через config.ini (сейчас хардкод 512 МБ)
-- [ ] Отладочный лог на SD — системные события, ошибки, сэмплы данных по условию
-- [ ] Логирование статистики (принято/потеряно/записано фреймов)
-- [ ] Поддержка фильтрации CAN ID на аппаратном уровне (HAL CAN filter banks)
-- [ ] Поддержка двух CAN-шин (CAN1 + CAN2) — два независимных канала, удвоение пропускной способности
-- [ ] Рассмотреть миграцию debug-интерфейса с USB CDC на CAN (status/config/get через CAN-фреймы, убрать зависимость от USB)
-- [ ] Полнота реализации MLG — изучить спеку, проверить все ли возможности используются
-- [x] RTC от LSE (32.768 kHz) вместо LSI — точное время в логах, VBAT батарейка на плате
-- [x] RTC persistence: `RTC_FLAG_INITS` check — RTC не перезаписывается на boot если уже инициализирован, переживает reset/flash пока VBAT жив. Первый boot (fresh chip / VBAT loss) → bootstrap на `2026-01-01 00:00:00`, дальше через CDC `settime YYYY-MM-DD HH:MM:SS` или GPS
-- [x] Персистентный fault log в RTC backup registers (DR1-DR3): session counter + last fault code/location, переживают reset и power loss. CDC команда `lastfault`. Нужно когда SD не монтируется — fault в BKP виден при следующем boot
-- [x] BOR Level 3 (2.7V) в Option Bytes — MCU в reset при медленном росте питания, нет попыток init SD на нестабильном Vdd
-- [x] SD mount retry — до 5 попыток с 200 мс паузой в `lw_init`, карта успевает инициализироваться после cold start
-- [x] FatFS LFN (Long File Names) + новая схема имён: `2026-04-12_12-32-29_00.mlg` — хронологическая сортировка, при коллизии инкремент суффикса `_NN`, `FA_CREATE_NEW` (не затирает существующие)
-- [x] Конфиг SD переименован `cansult_config.ini` → `config.ini`
-- [x] AEM X-Series UEGO 30-0300 (AEMnet CAN): Lambda, AFR (computed scale 0.001465), O2%, SysVolts на extended ID `0x180`
-- [x] Индикация состояния через LED (запись, ошибка, нет конфига, нет SD)
-- [x] DMA для SDIO (reorder + PBURST_INC4, TX_UNDERRUN исправлен)
-- [x] Обработка ошибок SD (FR_DISK_ERR@write после ~20 мин, см. [postmortem/SD_ERRORS.md](postmortem/SD_ERRORS.md), [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)):
-  - [x] Проверять результат f_sync — recovery при ошибке
-  - [x] Recovery вместо fatal: close → remount → new file → продолжить запись
-  - [x] `recover_file` делает `f_truncate` + `f_sync` перед `f_close` — без этого на SD оставались 32-МБ файлы с мусором в хвосте из переиспользованных кластеров (видно в log-19-04: два файла ровно MAX_FILE_SIZE с обрывом после первого recovery). Truncate/sync гейтятся через `had_clean_sync`: вызываются только если хотя бы один периодический `f_sync` в текущем файле прошёл успешно. Иначе FAT-стейт после свежей ошибки подозрительный, дополнительные SDIO-ops могут повиснуть — пропускаем, старый файл остаётся 32 MB с мусорным хвостом, новый файл создаётся чистым
-  - [~] ~~Уменьшить интервал f_sync (100 → 10 блоков)~~ — не нужно: supercap + graceful shutdown гарантируют flush при выключении, а частый f_sync увеличивает шанс GC stall
-  - [x] Заменить HAL_Delay(1000) в recover_file() на non-blocking — osDelay (FreeRTOS, блокирует только task_sd)
-  - [x] Счётчик recovery в статусе (rec=N lastrec=FR_X@site)
-  - [x] Убрать дублирование mlg_fields[256] (23KB RAM) — строить MLG header на лету из cfg_Config
-  - [x] recover_file() блокировала main loop на 30с — теперь блокирует только task_sd (osDelay), CAN drain продолжается
-  - [x] Stress test max pressure: 128 полей / 32 CAN ID / 1ms — решено миграцией на FreeRTOS (GC stalls блокируют только task_sd)
-- [x] Исследовать CMD_RSP_TIMEOUT при DMA записи — см. [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)
-  - [x] Анализ: вероятно CMD12 stop при busy карте, см. docs/postmortem/CMD_RSP_TIMEOUT.md
-  - [x] SDIO error counters через HAL_SD_ErrorCallback + hal.ErrorCode в CDC status
-  - [x] FAULT file на SD при фатальной ошибке (FAULT_NN.TXT с полной диагностикой)
-- [x] **SD writer decoupling — миграция на FreeRTOS**
-      (см. [postmortem/SD_WRITER_DECOUPLING.md](postmortem/SD_WRITER_DECOUPLING.md)):
-  - корневая причина: blocking `SD_write` в main loop → GC stalls до 710 мс
-    останавливают весь pipeline → **~12% потеря sample** на 2-часовом тесте
+- [x] Graceful shutdown on power loss — VIN_SENSE ADC + armed debounce + lw_stop + auto-resume via NVIC_SystemReset; validated on a supercap breadboard
+- [x] Extended CAN ID (29-bit) support in the config and can_map — explicit `is_extended = 1` key in `[field]`; the hardware filter is set up correctly for IDE=1 (used by AEM 30-0300 `0x180`)
+- [x] Sub-byte (1–7 bit) fields in the config — `start_bit` + `bit_length` keys for individual bit flags (ECU status, relays, solenoids)
+- [x] Field plausibility filter in the config — `valid_min` / `valid_max` keys (in display units, after scale/offset/LUT) + `invalid_strategy = last_good | clamp | skip`. Presets for sensor-fault encodings (`preset = aem_uego` → rejects raw 0xFFFF on AFR/Lambda). Covers RPM spikes from cansult UART glitches and AFR=96 on decel fuel-cut
+- [ ] Circular logging — when the SD fills up, delete the oldest MLG files and keep writing
+- [ ] Config validation on load with diagnostics
+- [x] "Date" field in MLG (U32 Unix timestamp, display_style=MLG_DATE) — synthetic field placed first in every record, +4 bytes/snapshot
+- [x] MLG markers (native block type 0x01) — K0 button (PE4, EXTI falling, 300 ms any-edge debounce, msg=`btn`) + CDC `mark [txt]`. D2 briefly goes dark (~75 ms) on marker write. Helps locate events quickly in MegaLogViewer
+- [ ] Expose `max_file_size` via config.ini (currently hard-coded 512 MB)
+- [ ] Debug log on SD — system events, errors, conditional data samples
+- [ ] Statistics logging (frames received/lost/written)
+- [ ] Hardware-level CAN ID filtering (HAL CAN filter banks)
+- [ ] Dual CAN bus support (CAN1 + CAN2) — two independent channels, doubled throughput
+- [ ] Consider migrating the debug interface from USB CDC to CAN (status/config/get over CAN frames, drop the USB dependency)
+- [ ] MLG completeness — study the spec, check whether all features are used
+- [x] RTC from LSE (32.768 kHz) instead of LSI — accurate log timestamps, VBAT battery on the board
+- [x] RTC persistence: `RTC_FLAG_INITS` check — the RTC is not overwritten on boot if already initialised; survives reset/flash as long as VBAT is alive. First boot (fresh chip / VBAT loss) → bootstrap to `2026-01-01 00:00:00`, then set via CDC `settime YYYY-MM-DD HH:MM:SS` or GPS
+- [x] Persistent fault log in RTC backup registers (DR1–DR3): session counter + last fault code/location; survive reset and power loss. CDC `lastfault` command. Needed when the SD does not mount — the BKP fault is visible on the next boot
+- [x] BOR Level 3 (2.7 V) in option bytes — MCU held in reset during slow power ramps; no SD init attempts on an unstable Vdd
+- [x] SD mount retry — up to 5 attempts with 200 ms pauses in `lw_init`; the card has time to initialise after a cold start
+- [x] FatFS LFN (Long File Names) + new naming scheme: `2026-04-12_12-32-29_00.mlg` — chronological sort; on collision the `_NN` suffix increments, `FA_CREATE_NEW` (does not overwrite existing files)
+- [x] Renamed SD config `cansult_config.ini` → `config.ini`
+- [x] AEM X-Series UEGO 30-0300 (AEMnet CAN): Lambda, AFR (computed scale 0.001465), O2%, SysVolts on extended ID `0x180`
+- [x] State indication via LEDs (recording, error, no config, no SD)
+- [x] DMA for SDIO (reorder + PBURST_INC4, TX_UNDERRUN fixed)
+- [x] SD error handling (FR_DISK_ERR@write after ~20 min, see [postmortem/SD_ERRORS.md](postmortem/SD_ERRORS.md), [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)):
+  - [x] Check the f_sync result — recover on error
+  - [x] Recovery instead of fatal: close → remount → new file → keep writing
+  - [x] `recover_file` does `f_truncate` + `f_sync` before `f_close` — without this, the SD was left with 32 MB files containing garbage tails from reused clusters (visible in log-19-04: two files exactly MAX_FILE_SIZE with a break after the first recovery). Truncate/sync are gated by `had_clean_sync`: they run only if at least one periodic `f_sync` succeeded in the current file. Otherwise the FAT state after a fresh error is suspect, further SDIO ops may hang — we skip them, the old file stays 32 MB with a garbage tail, the new file is created clean
+  - [~] ~~Shrink the f_sync interval (100 → 10 blocks)~~ — not needed: supercap + graceful shutdown guarantee a flush at power-down, and more frequent f_sync increases the chance of a GC stall
+  - [x] Replace HAL_Delay(1000) in recover_file() with something non-blocking — osDelay (FreeRTOS, blocks only task_sd)
+  - [x] Recovery counter in status (rec=N lastrec=FR_X@site)
+  - [x] Drop the duplicate mlg_fields[256] (23 KB RAM) — build the MLG header on the fly from cfg_Config
+  - [x] recover_file() used to block the main loop for 30 s — now only task_sd blocks (osDelay), CAN drain keeps going
+  - [x] Stress test at max pressure: 128 fields / 32 CAN IDs / 1 ms — solved by migrating to FreeRTOS (GC stalls block only task_sd)
+- [x] Investigate CMD_RSP_TIMEOUT on DMA writes — see [postmortem/CMD_RSP_TIMEOUT.md](postmortem/CMD_RSP_TIMEOUT.md)
+  - [x] Analysis: most likely CMD12 stop against a busy card, see docs/postmortem/CMD_RSP_TIMEOUT.md
+  - [x] SDIO error counters via HAL_SD_ErrorCallback + hal.ErrorCode in CDC status
+  - [x] FAULT file on SD on a fatal error (FAULT_NN.TXT with full diagnostics)
+- [x] **SD writer decoupling — FreeRTOS migration**
+      (see [postmortem/SD_WRITER_DECOUPLING.md](postmortem/SD_WRITER_DECOUPLING.md)):
+  - root cause: blocking `SD_write` in the main loop → GC stalls up to 710 ms
+    stop the whole pipeline → **~12 % sample loss** on a 2-hour run
     (64 U16 @ 250 Hz: expected 4000 fps, actual 3509 fps)
-  - на max-нагрузке 128 U16 @ 1 kHz потеря пропорционально растянется
-  - референс: rusEFI `mmc_card.cpp` — выделенный SD thread с приоритетом
-    `NORMALPRIO-1`, `SDC_NICE_WAITING=TRUE`, main loop не блокируется
-  - план: CubeMX → Middleware → FREERTOS CMSIS_V2 → выделить
-    `task_sd` (osPriorityBelowNormal) с очередью MLG records;
-    `task_log` (osPriorityNormal) собирает snapshot → queue;
-    CAN RX + can_map в высокоприоритетном task
-  - FatFS должен быть reentrant (`FF_FS_REENTRANT=1`)
+  - at the max-load 128 U16 @ 1 kHz the loss grows proportionally
+  - reference: rusEFI `mmc_card.cpp` — dedicated SD thread at priority
+    `NORMALPRIO-1`, `SDC_NICE_WAITING=TRUE`; main loop does not block
+  - plan: CubeMX → Middleware → FREERTOS CMSIS_V2 → split out
+    `task_sd` (osPriorityBelowNormal) with an MLG-records queue;
+    `task_log` (osPriorityNormal) builds the snapshot → queue;
+    CAN RX + can_map in a high-priority task
+  - FatFS must be reentrant (`FF_FS_REENTRANT=1`)
   - `SD_status` retry: `HAL_Delay` → `osDelay` (yield-friendly)
-  - финальная проверка: `docs/postmortem/STRESS_TEST_128U16_PLAN.md`
-- [x] `RING_BUF_SIZE` 1024 → 4096 (64 KB, покрывает 225 мс @ 18k fps):
-  - разблокировано оптимизацией RAM (config → CCM, mlg_fields убран)
-  - комфорт: 8192 (128 KB, 450 мс) — возможен при переносе `can_rx_buf` в CCM (сейчас не помещается)
-- [x] Оптимизация RAM (main SRAM: 54 KB из 128 KB занято, CCM: 53 KB из 64 KB):
-  - Убран `mlg_fields[256]` (23 KB) — MLG header строится на лету из `cfg_Config`
-  - `config` (52.7 KB) перенесён в CCM SRAM (`.ccmram` section)
+  - final check: `docs/postmortem/STRESS_TEST_128U16_PLAN.md`
+- [x] `RING_BUF_SIZE` 1024 → 4096 (64 KB, covers 225 ms @ 18k fps):
+  - unblocked by the RAM optimisation (config → CCM, mlg_fields removed)
+  - comfort target: 8192 (128 KB, 450 ms) — feasible once `can_rx_buf` moves to CCM (does not fit today)
+- [x] RAM optimisation (main SRAM: 54 KB of 128 KB used, CCM: 53 KB of 64 KB):
+  - Removed `mlg_fields[256]` (23 KB) — MLG header is built on the fly from `cfg_Config`
+  - `config` (52.7 KB) moved to CCM SRAM (`.ccmram` section)
   - FreeRTOS heap 8 → 16 KB, sdTask stack 2 → 4 KB
-  - `CAN_SNIFF_MAX` 16 → 32 (полное покрытие CAN ID в status)
+  - `CAN_SNIFF_MAX` 16 → 32 (full coverage of CAN IDs in status)
 
-### v2.0 — Удобство конфигурации
+### v2.0 — configuration convenience
 
-**Цель:** Простое создание конфигов без ручного редактирования.
+**Goal:** simple config authoring without manual editing.
 
-Задачи:
-- [ ] Web-UI для генерации конфиг-файла (выбор CAN ID, настройка параметров)
-- [ ] Режим сниффера: запись raw CAN-трафика для анализа и создания маппинга
-- [ ] USB-интерфейс для выгрузки логов (`get`) и загрузки конфигов (`put`) без извлечения SD (частично реализовано для отладки, но нет пользовательского интерфейса)
-- [ ] WIFI ESP Module
+Tasks:
+- [ ] Web UI for generating the config file (pick CAN IDs, tune parameters)
+- [ ] Sniffer mode: record raw CAN traffic for analysis and mapping authoring
+- [ ] USB interface for downloading logs (`get`) and uploading configs (`put`) without pulling the SD (partially implemented for debugging, no user-facing UI yet)
+- [ ] ESP Wi-Fi module
 
-## Ограничения и допущения
+## Constraints and assumptions
 
-- Целевая частота записи — максимально возможная на текущем железе
-- STM32F407 имеет 2 CAN-контроллера (CAN1, CAN2) — можно поддержать оба
-- Формат конфига на первом этапе может быть простым (INI/CSV), оптимизируется позже
-- Логгер не передаёт данные — только пишет на SD
+- Target recording rate — as high as the current hardware can sustain
+- STM32F407 has two CAN controllers (CAN1, CAN2) — both can be supported
+- The config format may stay simple at first (INI/CSV) and be optimised later
+- The logger does not transmit data — it only writes to SD
